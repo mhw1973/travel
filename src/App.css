@@ -1,7 +1,5 @@
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-
 .trip-page {
-  font-family: 'Pretendard', sans-serif;
+  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', sans-serif;
   line-height: 1.5;
   color: #333;
   max-width: 1000px;
