@@ -65,8 +65,12 @@ CREATE TABLE IF NOT EXISTS expenses (
 CREATE TABLE IF NOT EXISTS flights (
   id TEXT PRIMARY KEY,
   trip_id TEXT NOT NULL,
+  leg_type TEXT NOT NULL DEFAULT 'multi',
+  leg_order INTEGER NOT NULL DEFAULT 1,
   from_code TEXT NOT NULL,
+  from_airport TEXT,
   to_code TEXT NOT NULL,
+  to_airport TEXT,
   depart_at TEXT NOT NULL,
   arrive_at TEXT NOT NULL,
   airline TEXT NOT NULL,

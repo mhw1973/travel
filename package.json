@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "db:apply": "node scripts/apply-schema.mjs",
+    "db:migrate:flights": "node scripts/migrate-flight-columns.mjs",
     "worker:dev": "wrangler dev --config wrangler.toml",
     "worker:deploy": "wrangler deploy --config wrangler.toml",
     "worker:check": "wrangler deploy --dry-run --config wrangler.toml"

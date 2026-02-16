@@ -22,6 +22,7 @@ npm run worker:deploy
 ## Main Endpoints
 
 - `GET /health`
+- `GET /api/flight-lookup?flightIata=KE123&date=2026-04-13`
 - `GET /api/trips`
 - `POST /api/trips`
 - `GET /api/trips/:tripId`
@@ -34,3 +35,13 @@ npm run worker:deploy
 - `GET /api/meta/:key`
 - `PUT /api/meta/:key`
 
+## Optional Secret
+
+- `AVIATIONSTACK_ACCESS_KEY`
+  - Needed for `/api/flight-lookup`
+
+## Flight Multi-leg Fields
+
+- `legType`: `outbound` | `inbound` | `multi`
+- `legOrder`: number
+- `fromAirport`, `toAirport`: optional airport names

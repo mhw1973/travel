@@ -56,8 +56,12 @@ export interface ExpenseRow {
 export interface FlightRow {
   id: string
   trip_id: string
+  leg_type: string
+  leg_order: number
   from_code: string
+  from_airport?: string | null
   to_code: string
+  to_airport?: string | null
   depart_at: string
   arrive_at: string
   airline: string
@@ -71,6 +75,25 @@ export interface HotelRow {
   city: string
   check_in_date: string
   check_out_date: string
+}
+
+export interface FlightLookupItem {
+  flightIata: string
+  date: string | null
+  fromCode: string | null
+  toCode: string | null
+  departAt: string | null
+  arriveAt: string | null
+  airline: string | null
+  flightNo: string
+  fromAirport: string | null
+  toAirport: string | null
+  source: string
+}
+
+export interface FlightLookupResponse {
+  ok: boolean
+  item: FlightLookupItem
 }
 
 export interface TripsListResponse {
@@ -96,6 +119,35 @@ export interface CreateTripPayload {
   currency: string
   memo: string
   status: 'draft' | 'active' | 'done'
+  flights?: CreateFlightInput[]
+  hotels?: CreateHotelInput[]
+}
+
+export interface CreateFlightInput {
+  legType?: 'outbound' | 'inbound' | 'multi'
+  legOrder?: number
+  fromCode: string
+  fromAirport?: string
+  toCode: string
+  toAirport?: string
+  departAt: string
+  arriveAt: string
+  airline: string
+  flightNo: string
+  price?: number
+  currency?: string
+  note?: string
+}
+
+export interface CreateHotelInput {
+  name: string
+  city: string
+  checkInDate: string
+  checkOutDate: string
+  confirmationNo?: string
+  totalPrice?: number
+  currency?: string
+  note?: string
 }
 
 export interface CreatePlanPayload {

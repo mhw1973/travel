@@ -3,13 +3,18 @@ import type { FormEvent } from 'react'
 import {
   type ApiOptions,
   apiRequest,
+  type CreateFlightInput,
   getErrorMessage,
   type CreateExpensePayload,
+  type CreateHotelInput,
   type CreatePlanPayload,
   type CreateTripPayload,
   type DayRow,
   type ExpenseRow,
+  type FlightRow,
+  type HotelRow,
   type PlanRow,
+  type FlightLookupResponse,
   type TripDetailResponse,
   type TripRow,
   type TripsListResponse,
@@ -34,6 +39,88 @@ const toTimeLabel = (value: number | null): string => {
   return `${hh}:${mm}`
 }
 
+const toOptionalInt = (value: string): number | undefined => {
+  if (!value) {
+    return undefined
+  }
+  const parsed = Number.parseInt(value, 10)
+  return Number.isNaN(parsed) ? undefined : parsed
+}
+
+const toDateTimeLocalValue = (iso: string | null): string => {
+  if (!iso) {
+    return ''
+  }
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const offset = date.getTimezoneOffset()
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16)
+}
+
+const buildGoogleMapsSearchUrl = (query: string): string =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+
+const airportQueryFromFlight = (
+  airportName: string,
+  code: string,
+): string => {
+  const name = airportName.trim()
+  const iata = code.trim().toUpperCase()
+  if (name && iata) {
+    return `${name} ${iata} airport`
+  }
+  if (name) {
+    return `${name} airport`
+  }
+  return `${iata} airport`
+}
+
+interface NewFlightForm {
+  legType: 'outbound' | 'inbound' | 'multi'
+  legOrder: string
+  fromCode: string
+  fromAirport: string
+  toCode: string
+  toAirport: string
+  departAt: string
+  arriveAt: string
+  airline: string
+  flightNo: string
+  price: string
+}
+
+interface NewHotelForm {
+  name: string
+  city: string
+  checkInDate: string
+  checkOutDate: string
+  totalPrice: string
+}
+
+const EMPTY_FLIGHT_FORM: NewFlightForm = {
+  legType: 'multi',
+  legOrder: '1',
+  fromCode: '',
+  fromAirport: '',
+  toCode: '',
+  toAirport: '',
+  departAt: '',
+  arriveAt: '',
+  airline: '',
+  flightNo: '',
+  price: '',
+}
+
+const EMPTY_HOTEL_FORM: NewHotelForm = {
+  name: '',
+  city: '',
+  checkInDate: '',
+  checkOutDate: '',
+  totalPrice: '',
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>('auth')
   const [password, setPassword] = useState(localStorage.getItem(PASS_KEY) ?? '')
@@ -43,6 +130,8 @@ function App() {
   const [days, setDays] = useState<DayRow[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [expenses, setExpenses] = useState<ExpenseRow[]>([])
+  const [flights, setFlights] = useState<FlightRow[]>([])
+  const [hotels, setHotels] = useState<HotelRow[]>([])
   const [selectedDay, setSelectedDay] = useState('all')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -58,6 +147,9 @@ function App() {
   })
   const [newPlan, setNewPlan] = useState({ place: '', detail: '', startTime: '' })
   const [newExpense, setNewExpense] = useState({ item: '', amount: '', category: '' })
+  const [newTripFlights, setNewTripFlights] = useState<NewFlightForm[]>([])
+  const [newTripHotels, setNewTripHotels] = useState<NewHotelForm[]>([])
+  const [flightLookupIndex, setFlightLookupIndex] = useState<number | null>(null)
 
   const visibleDays = useMemo(() => {
     if (selectedDay === 'all') {
@@ -74,6 +166,8 @@ function App() {
     setDays(data.days)
     setPlans(data.plans)
     setExpenses(data.expenses)
+    setFlights(data.flights)
+    setHotels(data.hotels)
     setSelectedDay('all')
     setScreen('trip')
   }
@@ -124,17 +218,152 @@ function App() {
     }
   }
 
+  const addFlightDraft = (): void => {
+    setNewTripFlights((prev) => [...prev, { ...EMPTY_FLIGHT_FORM, legOrder: String(prev.length + 1) }])
+  }
+
+  const updateFlightDraft = (index: number, key: keyof NewFlightForm, value: string): void => {
+    setNewTripFlights((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [key]: value } : item)),
+    )
+  }
+
+  const removeFlightDraft = (index: number): void => {
+    setNewTripFlights((prev) => prev.filter((_, idx) => idx !== index))
+    setFlightLookupIndex((prev) => {
+      if (prev === null) {
+        return null
+      }
+      if (prev === index) {
+        return null
+      }
+      return prev > index ? prev - 1 : prev
+    })
+  }
+
+  const addHotelDraft = (): void => {
+    setNewTripHotels((prev) => [...prev, { ...EMPTY_HOTEL_FORM }])
+  }
+
+  const updateHotelDraft = (index: number, key: keyof NewHotelForm, value: string): void => {
+    setNewTripHotels((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [key]: value } : item)),
+    )
+  }
+
+  const removeHotelDraft = (index: number): void => {
+    setNewTripHotels((prev) => prev.filter((_, idx) => idx !== index))
+  }
+
+  const lookupFlightByNumber = async (index: number): Promise<void> => {
+    const draft = newTripFlights[index]
+    if (!draft) {
+      return
+    }
+
+    const flightIata = draft.flightNo.trim().toUpperCase()
+    if (!flightIata) {
+      return
+    }
+
+    const date = draft.departAt ? draft.departAt.slice(0, 10) : newTrip.startDate
+    const query = new URLSearchParams({ flightIata })
+    if (date) {
+      query.set('date', date)
+    }
+
+    setFlightLookupIndex(index)
+    setMessage(null)
+    try {
+      const data = await callApi<FlightLookupResponse>(`/api/flight-lookup?${query.toString()}`)
+      setNewTripFlights((prev) =>
+        prev.map((item, idx) => {
+          if (idx !== index) {
+            return item
+          }
+          return {
+            ...item,
+            fromCode: data.item.fromCode ?? item.fromCode,
+            fromAirport: data.item.fromAirport ?? item.fromAirport,
+            toCode: data.item.toCode ?? item.toCode,
+            toAirport: data.item.toAirport ?? item.toAirport,
+            departAt: data.item.departAt ? toDateTimeLocalValue(data.item.departAt) : item.departAt,
+            arriveAt: data.item.arriveAt ? toDateTimeLocalValue(data.item.arriveAt) : item.arriveAt,
+            airline: data.item.airline ?? item.airline,
+            flightNo: data.item.flightNo || item.flightNo,
+          }
+        }),
+      )
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+    } finally {
+      setFlightLookupIndex(null)
+    }
+  }
+
+  const mapCreateFlights = (): CreateFlightInput[] =>
+    newTripFlights
+      .filter(
+        (item) =>
+          item.fromCode.trim() &&
+          item.toCode.trim() &&
+          item.departAt &&
+          item.arriveAt &&
+          item.airline.trim() &&
+          item.flightNo.trim(),
+      )
+      .map((item) => ({
+        legType: item.legType,
+        legOrder: toOptionalInt(item.legOrder),
+        fromCode: item.fromCode.trim().toUpperCase(),
+        fromAirport: item.fromAirport.trim() || undefined,
+        toCode: item.toCode.trim().toUpperCase(),
+        toAirport: item.toAirport.trim() || undefined,
+        departAt: new Date(item.departAt).toISOString(),
+        arriveAt: new Date(item.arriveAt).toISOString(),
+        airline: item.airline.trim(),
+        flightNo: item.flightNo.trim(),
+        price: toOptionalInt(item.price),
+        currency: newTrip.currency,
+      }))
+
+  const mapCreateHotels = (): CreateHotelInput[] =>
+    newTripHotels
+      .filter(
+        (item) =>
+          item.name.trim() &&
+          item.city.trim() &&
+          item.checkInDate &&
+          item.checkOutDate,
+      )
+      .map((item) => ({
+        name: item.name.trim(),
+        city: item.city.trim(),
+        checkInDate: item.checkInDate,
+        checkOutDate: item.checkOutDate,
+        totalPrice: toOptionalInt(item.totalPrice),
+        currency: newTrip.currency,
+      }))
+
   const submitNewTrip = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     setLoading(true)
     setMessage(null)
     try {
+      const payload: CreateTripPayload = {
+        ...newTrip,
+        flights: mapCreateFlights(),
+        hotels: mapCreateHotels(),
+      }
       const created = await callApi<{ trip: TripRow }>('/api/trips', {
         method: 'POST',
-        body: JSON.stringify(newTrip),
+        body: JSON.stringify(payload),
       })
       await openTrip(created.trip.id)
       setNewTrip({ title: '', destination: '', startDate: '', endDate: '', currency: 'JPY', memo: '', status: 'draft' })
+      setNewTripFlights([])
+      setNewTripHotels([])
+      setFlightLookupIndex(null)
     } catch (error) {
       setMessage(getErrorMessage(error))
       setLoading(false)
@@ -210,6 +439,8 @@ function App() {
     setDays([])
     setPlans([])
     setExpenses([])
+    setFlights([])
+    setHotels([])
   }
 
   return (
@@ -263,6 +494,98 @@ function App() {
             <option value="USD">USD</option>
           </select>
           <textarea value={newTrip.memo} onChange={(e) => setNewTrip({ ...newTrip, memo: e.target.value })} placeholder="메모 (선택)" rows={3} />
+
+          <section className="draft-section">
+            <div className="draft-header">
+              <h3>항공편 (여러 개 가능)</h3>
+              <button type="button" className="btn ghost" onClick={addFlightDraft}>+ 항공편</button>
+            </div>
+            {newTripFlights.map((flight, index) => (
+              <div className="draft-card" key={`flight-${index}`}>
+                <div className="draft-grid">
+                  <select value={flight.legType} onChange={(e) => updateFlightDraft(index, 'legType', e.target.value)}>
+                    <option value="outbound">출국</option>
+                    <option value="inbound">귀국</option>
+                    <option value="multi">다구간</option>
+                  </select>
+                  <input type="number" value={flight.legOrder} onChange={(e) => updateFlightDraft(index, 'legOrder', e.target.value)} placeholder="구간 순서" />
+                  <input value={flight.fromCode} onChange={(e) => updateFlightDraft(index, 'fromCode', e.target.value)} placeholder="출발 코드 (ICN)" />
+                  <input value={flight.fromAirport} onChange={(e) => updateFlightDraft(index, 'fromAirport', e.target.value)} placeholder="출발 공항명(선택)" />
+                  <input value={flight.toCode} onChange={(e) => updateFlightDraft(index, 'toCode', e.target.value)} placeholder="도착 코드 (KIX)" />
+                  <input value={flight.toAirport} onChange={(e) => updateFlightDraft(index, 'toAirport', e.target.value)} placeholder="도착 공항명(선택)" />
+                  <input type="datetime-local" value={flight.departAt} onChange={(e) => updateFlightDraft(index, 'departAt', e.target.value)} />
+                  <input type="datetime-local" value={flight.arriveAt} onChange={(e) => updateFlightDraft(index, 'arriveAt', e.target.value)} />
+                  <input value={flight.airline} onChange={(e) => updateFlightDraft(index, 'airline', e.target.value)} placeholder="항공사" />
+                  <input
+                    value={flight.flightNo}
+                    onChange={(e) => updateFlightDraft(index, 'flightNo', e.target.value)}
+                    onBlur={() => void lookupFlightByNumber(index)}
+                    placeholder="편명 (입력 후 자동조회)"
+                  />
+                  <input type="number" value={flight.price} onChange={(e) => updateFlightDraft(index, 'price', e.target.value)} placeholder="금액(선택)" />
+                </div>
+                <div className="actions">
+                  <a
+                    className="btn ghost map-link"
+                    href={buildGoogleMapsSearchUrl(airportQueryFromFlight(flight.fromAirport, flight.fromCode))}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    출발공항 지도
+                  </a>
+                  <a
+                    className="btn ghost map-link"
+                    href={buildGoogleMapsSearchUrl(airportQueryFromFlight(flight.toAirport, flight.toCode))}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    도착공항 지도
+                  </a>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => void lookupFlightByNumber(index)}
+                    disabled={flightLookupIndex === index}
+                  >
+                    {flightLookupIndex === index ? '조회중...' : '편명 조회'}
+                  </button>
+                  <button type="button" className="btn ghost" onClick={() => removeFlightDraft(index)}>삭제</button>
+                </div>
+                <p className="muted">지도는 새 탭으로 열립니다. 이 앱 탭으로 돌아오면 계속 입력할 수 있습니다.</p>
+              </div>
+            ))}
+          </section>
+
+          <section className="draft-section">
+            <div className="draft-header">
+              <h3>호텔 (여러 개 가능)</h3>
+              <button type="button" className="btn ghost" onClick={addHotelDraft}>+ 호텔</button>
+            </div>
+            {newTripHotels.map((hotel, index) => (
+              <div className="draft-card" key={`hotel-${index}`}>
+                <div className="draft-grid">
+                  <input value={hotel.name} onChange={(e) => updateHotelDraft(index, 'name', e.target.value)} placeholder="호텔명" />
+                  <input value={hotel.city} onChange={(e) => updateHotelDraft(index, 'city', e.target.value)} placeholder="도시" />
+                  <input type="date" value={hotel.checkInDate} onChange={(e) => updateHotelDraft(index, 'checkInDate', e.target.value)} />
+                  <input type="date" value={hotel.checkOutDate} onChange={(e) => updateHotelDraft(index, 'checkOutDate', e.target.value)} />
+                  <input type="number" value={hotel.totalPrice} onChange={(e) => updateHotelDraft(index, 'totalPrice', e.target.value)} placeholder="총 숙박비(선택)" />
+                </div>
+                <div className="actions">
+                  <a
+                    className="btn ghost map-link"
+                    href={buildGoogleMapsSearchUrl(`${hotel.name} ${hotel.city}`.trim() || 'hotel')}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    호텔 지도
+                  </a>
+                  <button type="button" className="btn ghost" onClick={() => removeHotelDraft(index)}>삭제</button>
+                </div>
+                <p className="muted">지도는 새 탭으로 열립니다. 앱 탭으로 바로 돌아올 수 있습니다.</p>
+              </div>
+            ))}
+          </section>
+
           <div className="actions">
             <button type="button" className="btn ghost" onClick={() => setScreen('home')}>뒤로</button>
             <button type="submit" className="btn primary" disabled={loading}>생성</button>
@@ -293,6 +616,75 @@ function App() {
         <section className="panel">
           <h2>{trip.title}</h2>
           <p className="muted">{trip.destination} | {trip.start_date} ~ {trip.end_date}</p>
+
+          <div className="meta-grid">
+            <section className="meta-card">
+              <h3>항공편</h3>
+              {flights.length === 0 ? (
+                <p className="muted">등록된 항공편 없음</p>
+              ) : (
+                <ul className="meta-list">
+                  {flights.map((flight) => (
+                    <li key={flight.id}>
+                      <strong>
+                        [{flight.leg_type}/{flight.leg_order}] {flight.from_code} {'->'} {flight.to_code}
+                      </strong>
+                      <span>{flight.airline} {flight.flight_no}</span>
+                      <span className="map-links-inline">
+                        <a
+                          className="inline-link"
+                          href={buildGoogleMapsSearchUrl(
+                            airportQueryFromFlight(flight.from_airport ?? '', flight.from_code),
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          출발공항 지도
+                        </a>
+                        <a
+                          className="inline-link"
+                          href={buildGoogleMapsSearchUrl(
+                            airportQueryFromFlight(flight.to_airport ?? '', flight.to_code),
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          도착공항 지도
+                        </a>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="meta-card">
+              <h3>호텔</h3>
+              {hotels.length === 0 ? (
+                <p className="muted">등록된 호텔 없음</p>
+              ) : (
+                <ul className="meta-list">
+                  {hotels.map((hotel) => (
+                    <li key={hotel.id}>
+                      <strong>{hotel.name}</strong>
+                      <span>{hotel.city} | {hotel.check_in_date} ~ {hotel.check_out_date}</span>
+                      <span className="map-links-inline">
+                        <a
+                          className="inline-link"
+                          href={buildGoogleMapsSearchUrl(`${hotel.name} ${hotel.city}`)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          호텔 지도
+                        </a>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+
           <label>일자 선택
             <select value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)}>
               <option value="all">전체</option>

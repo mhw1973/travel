@@ -67,6 +67,40 @@ body {
   color: var(--muted);
 }
 
+.draft-section {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fbfdff;
+}
+
+.draft-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.draft-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.draft-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.draft-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .actions {
   display: flex;
   gap: 8px;
@@ -80,6 +114,10 @@ body {
   padding: 10px 14px;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn.primary {
@@ -95,6 +133,10 @@ body {
 .btn.ghost {
   color: var(--ink);
   background: #e7eef7;
+}
+
+.map-link {
+  min-width: 120px;
 }
 
 .notice {
@@ -141,6 +183,59 @@ body {
 
 .day-card h3 {
   margin: 2px 0 8px;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.meta-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #f9fbff;
+}
+
+.meta-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.meta-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.meta-list li {
+  display: grid;
+  gap: 2px;
+}
+
+.meta-list span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.map-links-inline {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inline-link {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
 }
 
 table {
@@ -192,9 +287,16 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .draft-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-grid {
+    grid-template-columns: 1fr;
+  }
+
   table {
     display: block;
     overflow-x: auto;
   }
 }
-

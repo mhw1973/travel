@@ -5,6 +5,7 @@ interface Env {
   TURSO_AUTH_TOKEN: string
   APP_PASSWORD: string
   ALLOWED_ORIGIN: string
+  AVIATIONSTACK_ACCESS_KEY?: string
 }
 
 type JsonBody = Record<string, unknown>
@@ -24,7 +25,7 @@ const RESOURCE_ORDER: Record<ResourceName, string> = {
   days: 'ORDER BY day_no ASC, date ASC',
   plans: 'ORDER BY sort_order ASC, start_min ASC, id ASC',
   expenses: 'ORDER BY spent_at DESC, id DESC',
-  flights: 'ORDER BY depart_at ASC, id ASC',
+  flights: 'ORDER BY leg_order ASC, depart_at ASC, id ASC',
   hotels: 'ORDER BY check_in_date ASC, id ASC',
 }
 
@@ -177,6 +178,22 @@ const asOptionalInteger = (value: unknown, label: string): number | null => {
   return asRequiredInteger(value, label)
 }
 
+const asObjectArray = (value: unknown, label: string): JsonBody[] => {
+  if (value === undefined || value === null) {
+    return []
+  }
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, `${label} must be an array`)
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new HttpError(400, `${label}[${index}] must be an object`)
+    }
+    return item as JsonBody
+  })
+}
+
 const asDateOnly = (value: string, label: string): string => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new HttpError(400, `${label} must be YYYY-MM-DD`)
@@ -288,6 +305,98 @@ const fetchById = async (
   return { ok: true, item: result.rows[0] }
 }
 
+interface AviationstackFlightItem {
+  flight_date?: string
+  departure?: {
+    iata?: string | null
+    airport?: string | null
+    scheduled?: string | null
+  }
+  arrival?: {
+    iata?: string | null
+    airport?: string | null
+    scheduled?: string | null
+  }
+  airline?: {
+    name?: string | null
+    iata?: string | null
+  }
+  flight?: {
+    iata?: string | null
+    number?: string | null
+  }
+}
+
+const normalizeFlightIata = (value: string): string => value.trim().toUpperCase()
+
+const normalizeDateParam = (value: string): string => asDateOnly(value, 'date')
+
+const handleFlightLookup = async (request: Request, env: Env): Promise<ResponsePayload> => {
+  const url = new URL(request.url)
+  const rawFlightIata = url.searchParams.get('flightIata') ?? ''
+  const rawDate = url.searchParams.get('date') ?? ''
+  const flightIata = normalizeFlightIata(rawFlightIata)
+  const date = rawDate ? normalizeDateParam(rawDate) : ''
+
+  if (!flightIata || !/^[A-Z0-9]{3,8}$/.test(flightIata)) {
+    throw new HttpError(400, 'flightIata query is required (e.g. KE123)')
+  }
+
+  const accessKey = env.AVIATIONSTACK_ACCESS_KEY
+  if (!accessKey) {
+    throw new HttpError(501, 'AVIATIONSTACK_ACCESS_KEY is not configured')
+  }
+
+  const apiUrl = new URL('https://api.aviationstack.com/v1/flights')
+  apiUrl.searchParams.set('access_key', accessKey)
+  apiUrl.searchParams.set('flight_iata', flightIata)
+  if (date) {
+    apiUrl.searchParams.set('flight_date', date)
+  }
+
+  const response = await fetch(apiUrl.toString(), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) {
+    throw new HttpError(502, `Flight provider error: ${response.status}`)
+  }
+
+  const payload = (await response.json()) as { data?: unknown }
+  const rows = Array.isArray(payload.data) ? (payload.data as AviationstackFlightItem[]) : []
+  if (rows.length === 0) {
+    throw new HttpError(404, 'No matching flight found')
+  }
+
+  const matched =
+    rows.find((item) => normalizeFlightIata(item.flight?.iata ?? '') === flightIata) ?? rows[0]
+
+  const departAt = asOptionalString(matched.departure?.scheduled ?? null, 'departure.scheduled')
+  const arriveAt = asOptionalString(matched.arrival?.scheduled ?? null, 'arrival.scheduled')
+  const fromCode = asOptionalString(matched.departure?.iata ?? null, 'departure.iata')
+  const toCode = asOptionalString(matched.arrival?.iata ?? null, 'arrival.iata')
+  const airlineName = asOptionalString(matched.airline?.name ?? null, 'airline.name')
+  const airlineCode = asOptionalString(matched.airline?.iata ?? null, 'airline.iata')
+  const flightNumber = asOptionalString(matched.flight?.number ?? null, 'flight.number')
+
+  return {
+    ok: true,
+    item: {
+      flightIata,
+      date: date || matched.flight_date || null,
+      fromCode,
+      toCode,
+      departAt,
+      arriveAt,
+      airline: airlineName ?? airlineCode,
+      flightNo: flightNumber ? `${airlineCode ?? ''}${flightNumber}`.trim() : flightIata,
+      fromAirport: matched.departure?.airport ?? null,
+      toAirport: matched.arrival?.airport ?? null,
+      source: 'aviationstack',
+    },
+  }
+}
+
 const handleTripCreate = async (client: Client, body: JsonBody): Promise<ResponsePayload> => {
   const title = asRequiredString(valueOf(body, ['title']), 'title')
   const destination = asRequiredString(valueOf(body, ['destination']), 'destination')
@@ -302,6 +411,8 @@ const handleTripCreate = async (client: Client, body: JsonBody): Promise<Respons
   const currency = asOptionalString(valueOf(body, ['currency']), 'currency') ?? 'JPY'
   const memo = asOptionalString(valueOf(body, ['memo']), 'memo')
   const rawStatus = asOptionalString(valueOf(body, ['status']), 'status') ?? 'draft'
+  const flightsInput = asObjectArray(valueOf(body, ['flights']), 'flights')
+  const hotelsInput = asObjectArray(valueOf(body, ['hotels']), 'hotels')
   if (!STATUS_VALUES.has(rawStatus)) {
     throw new HttpError(400, 'status must be one of draft, active, done')
   }
@@ -310,7 +421,7 @@ const handleTripCreate = async (client: Client, body: JsonBody): Promise<Respons
   const createdAt = nowIso()
   const tripId = makeId('trip')
 
-  const statements = [
+  const statements: Array<{ sql: string; args: unknown[] }> = [
     {
       sql: `
         INSERT INTO trips (
@@ -335,18 +446,131 @@ const handleTripCreate = async (client: Client, body: JsonBody): Promise<Respons
     })
   })
 
+  flightsInput.forEach((flight, index) => {
+    const legType = asOptionalString(valueOf(flight, ['legType', 'leg_type']), `flights[${index}].legType`) ?? 'multi'
+    const legOrder =
+      asOptionalInteger(valueOf(flight, ['legOrder', 'leg_order']), `flights[${index}].legOrder`) ??
+      index + 1
+    const fromCode = asRequiredString(valueOf(flight, ['fromCode', 'from_code']), `flights[${index}].fromCode`)
+    const fromAirport = asOptionalString(valueOf(flight, ['fromAirport', 'from_airport']), `flights[${index}].fromAirport`)
+    const toCode = asRequiredString(valueOf(flight, ['toCode', 'to_code']), `flights[${index}].toCode`)
+    const toAirport = asOptionalString(valueOf(flight, ['toAirport', 'to_airport']), `flights[${index}].toAirport`)
+    const departAt = asIsoDateTime(
+      asRequiredString(valueOf(flight, ['departAt', 'depart_at']), `flights[${index}].departAt`),
+      `flights[${index}].departAt`,
+    )
+    const arriveAt = asIsoDateTime(
+      asRequiredString(valueOf(flight, ['arriveAt', 'arrive_at']), `flights[${index}].arriveAt`),
+      `flights[${index}].arriveAt`,
+    )
+    const airline = asRequiredString(valueOf(flight, ['airline']), `flights[${index}].airline`)
+    const flightNo = asRequiredString(valueOf(flight, ['flightNo', 'flight_no']), `flights[${index}].flightNo`)
+    const price = asOptionalInteger(valueOf(flight, ['price']), `flights[${index}].price`)
+    const flightCurrency =
+      asOptionalString(valueOf(flight, ['currency']), `flights[${index}].currency`) ?? currency
+    const note = asOptionalString(valueOf(flight, ['note']), `flights[${index}].note`)
+
+    statements.push({
+      sql: `
+        INSERT INTO flights (
+          id, trip_id, leg_type, leg_order, from_code, from_airport, to_code, to_airport, depart_at, arrive_at,
+          airline, flight_no, price, currency, note, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        makeId('flt'),
+        tripId,
+        legType,
+        legOrder,
+        fromCode,
+        fromAirport,
+        toCode,
+        toAirport,
+        departAt,
+        arriveAt,
+        airline,
+        flightNo,
+        price,
+        flightCurrency,
+        note,
+        createdAt,
+        createdAt,
+      ],
+    })
+  })
+
+  hotelsInput.forEach((hotel, index) => {
+    const name = asRequiredString(valueOf(hotel, ['name']), `hotels[${index}].name`)
+    const city = asRequiredString(valueOf(hotel, ['city']), `hotels[${index}].city`)
+    const checkInDate = asDateOnly(
+      asRequiredString(valueOf(hotel, ['checkInDate', 'check_in_date']), `hotels[${index}].checkInDate`),
+      `hotels[${index}].checkInDate`,
+    )
+    const checkOutDate = asDateOnly(
+      asRequiredString(valueOf(hotel, ['checkOutDate', 'check_out_date']), `hotels[${index}].checkOutDate`),
+      `hotels[${index}].checkOutDate`,
+    )
+    const confirmationNo = asOptionalString(
+      valueOf(hotel, ['confirmationNo', 'confirmation_no']),
+      `hotels[${index}].confirmationNo`,
+    )
+    const totalPrice = asOptionalInteger(
+      valueOf(hotel, ['totalPrice', 'total_price']),
+      `hotels[${index}].totalPrice`,
+    )
+    const hotelCurrency = asOptionalString(valueOf(hotel, ['currency']), `hotels[${index}].currency`) ?? currency
+    const note = asOptionalString(valueOf(hotel, ['note']), `hotels[${index}].note`)
+
+    statements.push({
+      sql: `
+        INSERT INTO hotels (
+          id, trip_id, name, city, check_in_date, check_out_date,
+          confirmation_no, total_price, currency, note, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        makeId('hotel'),
+        tripId,
+        name,
+        city,
+        checkInDate,
+        checkOutDate,
+        confirmationNo,
+        totalPrice,
+        hotelCurrency,
+        note,
+        createdAt,
+        createdAt,
+      ],
+    })
+  })
+
   await client.batch(statements, 'write')
 
-  const trip = await client.execute({ sql: 'SELECT * FROM trips WHERE id = ?', args: [tripId] })
-  const days = await client.execute({
-    sql: 'SELECT * FROM days WHERE trip_id = ? ORDER BY day_no ASC',
-    args: [tripId],
-  })
+  const [trip, days, flights, hotels] = await Promise.all([
+    client.execute({ sql: 'SELECT * FROM trips WHERE id = ?', args: [tripId] }),
+    client.execute({
+      sql: 'SELECT * FROM days WHERE trip_id = ? ORDER BY day_no ASC',
+      args: [tripId],
+    }),
+    client.execute({
+      sql: 'SELECT * FROM flights WHERE trip_id = ? ORDER BY leg_order ASC, depart_at ASC, id ASC',
+      args: [tripId],
+    }),
+    client.execute({
+      sql: 'SELECT * FROM hotels WHERE trip_id = ? ORDER BY check_in_date ASC, id ASC',
+      args: [tripId],
+    }),
+  ])
 
   return {
     ok: true,
     trip: trip.rows[0],
     days: days.rows,
+    flights: flights.rows,
+    hotels: hotels.rows,
   }
 }
 
@@ -469,19 +693,29 @@ const createTripCollectionItem = async (
 
   if (resource === 'flights') {
     const id = makeId('flt')
+    const legType = asOptionalString(valueOf(body, ['legType', 'leg_type']), 'legType') ?? 'multi'
+    const legOrder = asOptionalInteger(valueOf(body, ['legOrder', 'leg_order']), 'legOrder') ?? 1
+    const fromCode = asRequiredString(valueOf(body, ['fromCode', 'from_code']), 'fromCode')
+    const fromAirport = asOptionalString(valueOf(body, ['fromAirport', 'from_airport']), 'fromAirport')
+    const toCode = asRequiredString(valueOf(body, ['toCode', 'to_code']), 'toCode')
+    const toAirport = asOptionalString(valueOf(body, ['toAirport', 'to_airport']), 'toAirport')
     await client.execute({
       sql: `
         INSERT INTO flights (
-          id, trip_id, from_code, to_code, depart_at, arrive_at,
+          id, trip_id, leg_type, leg_order, from_code, from_airport, to_code, to_airport, depart_at, arrive_at,
           airline, flight_no, price, currency, note, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         id,
         tripId,
-        asRequiredString(valueOf(body, ['fromCode', 'from_code']), 'fromCode'),
-        asRequiredString(valueOf(body, ['toCode', 'to_code']), 'toCode'),
+        legType,
+        legOrder,
+        fromCode,
+        fromAirport,
+        toCode,
+        toAirport,
         asIsoDateTime(
           asRequiredString(valueOf(body, ['departAt', 'depart_at']), 'departAt'),
           'departAt',
@@ -613,7 +847,10 @@ const handleTripDetail = async (client: Client, tripId: string): Promise<Respons
       sql: 'SELECT * FROM expenses WHERE trip_id = ? ORDER BY spent_at DESC, id DESC',
       args: [tripId],
     }),
-    client.execute({ sql: 'SELECT * FROM flights WHERE trip_id = ? ORDER BY depart_at ASC, id ASC', args: [tripId] }),
+    client.execute({
+      sql: 'SELECT * FROM flights WHERE trip_id = ? ORDER BY leg_order ASC, depart_at ASC, id ASC',
+      args: [tripId],
+    }),
     client.execute({
       sql: 'SELECT * FROM hotels WHERE trip_id = ? ORDER BY check_in_date ASC, id ASC',
       args: [tripId],
@@ -726,11 +963,23 @@ const handleResourcePatch = async (
   }
 
   if (resource === 'flights') {
+    if (hasAnyKey(body, ['legType', 'leg_type'])) {
+      push('leg_type', asRequiredString(valueOf(body, ['legType', 'leg_type']), 'legType'))
+    }
+    if (hasAnyKey(body, ['legOrder', 'leg_order'])) {
+      push('leg_order', asRequiredInteger(valueOf(body, ['legOrder', 'leg_order']), 'legOrder'))
+    }
     if (hasAnyKey(body, ['fromCode', 'from_code'])) {
       push('from_code', asRequiredString(valueOf(body, ['fromCode', 'from_code']), 'fromCode'))
     }
+    if (hasAnyKey(body, ['fromAirport', 'from_airport'])) {
+      push('from_airport', asOptionalString(valueOf(body, ['fromAirport', 'from_airport']), 'fromAirport'))
+    }
     if (hasAnyKey(body, ['toCode', 'to_code'])) {
       push('to_code', asRequiredString(valueOf(body, ['toCode', 'to_code']), 'toCode'))
+    }
+    if (hasAnyKey(body, ['toAirport', 'to_airport'])) {
+      push('to_airport', asOptionalString(valueOf(body, ['toAirport', 'to_airport']), 'toAirport'))
     }
     if (hasAnyKey(body, ['departAt', 'depart_at'])) {
       const raw = asRequiredString(valueOf(body, ['departAt', 'depart_at']), 'departAt')
@@ -861,9 +1110,14 @@ const handleMetaPut = async (client: Client, key: string, body: JsonBody): Promi
 const routeProtected = async (
   request: Request,
   client: Client,
+  env: Env,
   path: string,
 ): Promise<ResponsePayload> => {
   const method = request.method.toUpperCase()
+
+  if (path === '/api/flight-lookup' && method === 'GET') {
+    return handleFlightLookup(request, env)
+  }
 
   if (path === '/api/trips' && method === 'GET') {
     const result = await client.execute('SELECT * FROM trips ORDER BY updated_at DESC')
@@ -992,7 +1246,7 @@ export default {
 
       requireAuth(request, env)
       const client = getClient(env)
-      const payload = await routeProtected(request, client, path)
+      const payload = await routeProtected(request, client, env, path)
       return json(payload, 200, corsHeaders)
     } catch (error) {
       const normalized = mapDbError(error)
