@@ -1,0 +1,269 @@
+{
+  "title": "✈️ 9박 10일 간사이 여행 명령서 (Expert)",
+  "allOptionLabel": "📅 전체 일정 및 가계부 보기",
+  "defaultFoodHeader": "식사 (택 1)",
+  "days": [
+    {
+      "id": "day1",
+      "optionLabel": "Day 1: 교토 (4/13, 월)",
+      "sectionTitle": "🌸 1부: 교토 & 온천 (숙소: 어반 호텔)",
+      "hotelInfo": "🏨 숙소: 어반 호텔 교토 시조 프리미엄 (4/13~4/15)",
+      "dateTitle": "📅 4/13 (월) 교토 입성",
+      "items": [
+        {
+          "time": "10:00",
+          "plan": "간사이 공항 도착",
+          "detail": "✈️ 비행기 도착 및 입국 수속"
+        },
+        {
+          "time": "11:30",
+          "plan": "교토역 이동",
+          "detail": "JR 하루카 탑승",
+          "mapUrl": "https://www.google.com/maps/dir/Kansai+Airport/Kyoto+Station",
+          "mapLabel": "🗺️ 경로",
+          "food": "-"
+        },
+        {
+          "time": "14:30",
+          "plan": "니시키 시장",
+          "detail": "201 / 203 / 207 버스",
+          "mapUrl": "https://www.google.com/maps/search/Nishiki+Market",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍜 후미야 / 마츠바"
+        },
+        {
+          "time": "18:30",
+          "plan": "기온/폰토초",
+          "detail": "🚶 도보 산책",
+          "mapUrl": "https://www.google.com/maps/search/Pontocho+Alley",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍺 쿄고쿠 스탠드 / 야스베에"
+        }
+      ]
+    },
+    {
+      "id": "day2",
+      "optionLabel": "Day 2: 교토/아라시야마 (4/14, 화)",
+      "dateTitle": "📅 4/14 (화) 아라시야마 & 금각사",
+      "items": [
+        {
+          "time": "08:30",
+          "plan": "아라시야마",
+          "detail": "란덴 열차 탑승",
+          "mapUrl": "https://www.google.com/maps/dir/Shijo-Omiya/Arashiyama",
+          "mapLabel": "🗺️ 경로",
+          "food": "-"
+        },
+        {
+          "time": "12:00",
+          "plan": "금각사 이동",
+          "detail": "204 / 205번 버스",
+          "mapUrl": "https://www.google.com/maps/dir/Arashiyama/Kinkaku-ji",
+          "mapLabel": "🗺️ 경로",
+          "food": "🍱 요시무라 / 이네"
+        },
+        {
+          "time": "18:30",
+          "plan": "저녁 이동",
+          "detail": "게이한 열차 이동",
+          "mapUrl": "https://www.google.com/maps/search/Torisei+Kyoto",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍶 토리세이 / 마루후쿠"
+        }
+      ]
+    },
+    {
+      "id": "day3",
+      "optionLabel": "Day 3: 고베/아리마 (4/15, 수)",
+      "dateTitle": "📅 4/15 (수) 고베 & 아리마 온천",
+      "items": [
+        {
+          "time": "11:00",
+          "plan": "산노미야",
+          "detail": "JR 신쾌속 (교토→고베)",
+          "mapUrl": "https://www.google.com/maps/dir/Kyoto/Sannomiya+Station",
+          "mapLabel": "🗺️ 경로",
+          "food": "🥩 스테이크랜드 / 야자와"
+        },
+        {
+          "time": "15:00",
+          "plan": "아리마 온천",
+          "detail": "🚌 고속버스 이용",
+          "mapUrl": "https://www.google.com/maps/search/Arima+Onsen",
+          "mapLabel": "🗺️ 지도",
+          "food": "♨️ 온천 가이세키"
+        }
+      ]
+    },
+    {
+      "id": "day4",
+      "optionLabel": "Day 4: 오사카/고시엔 (4/16, 목)",
+      "sectionTitle": "⚾ 2부: 오사카 (숙소: 아트 호텔)",
+      "hotelInfo": "🏨 숙소: 아트 호텔 오사카 베이 타워 (4/16~4/22)",
+      "dateTitle": "📅 4/16 (목) 오사카 진입 & 야구",
+      "items": [
+        {
+          "time": "11:00",
+          "plan": "오사카 이동",
+          "detail": "🚌 고속버스 (아리마→오사카)",
+          "mapUrl": "https://www.google.com/maps/dir/Arima+Onsen/Umeda",
+          "mapLabel": "🗺️ 경로",
+          "food": "-"
+        },
+        {
+          "time": "18:00",
+          "plan": "고시엔 야구",
+          "detail": "한신 전철 고시엔역",
+          "mapUrl": "https://www.google.com/maps/search/Hanshin+Koshien+Stadium",
+          "mapLabel": "🗺️ 지도",
+          "food": "⚾ 구장 내 먹거리"
+        }
+      ]
+    },
+    {
+      "id": "day5",
+      "optionLabel": "Day 5: 오사카 시내 정복 (4/17, 금)",
+      "dateTitle": "📅 4/17 (금) 오사카 시내 정복",
+      "items": [
+        {
+          "time": "09:30",
+          "plan": "오사카성",
+          "detail": "🚇 주오선 다니마치 4초메",
+          "mapUrl": "https://www.google.com/maps/search/Osaka+Castle",
+          "mapLabel": "🗺️ 지도",
+          "food": "-"
+        },
+        {
+          "time": "12:00",
+          "plan": "난바 점심",
+          "detail": "🚇 미도스지선 난바역",
+          "mapUrl": "https://www.google.com/maps/search/Namba+Osaka",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍛 뉴라이트 / 다이키치"
+        },
+        {
+          "time": "19:00",
+          "plan": "도톤보리",
+          "detail": "🚶 도보 이동",
+          "mapUrl": "https://www.google.com/maps/search/Dotonbori",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍺 술집 / 타코야끼"
+        }
+      ]
+    },
+    {
+      "id": "day6",
+      "optionLabel": "Day 6: 나라/우지 (4/18, 토)",
+      "dateTitle": "📅 4/18 (토) 나라 & 우지",
+      "items": [
+        {
+          "time": "09:00",
+          "plan": "나라 사슴공원",
+          "detail": "JR 야마토지선",
+          "mapUrl": "https://www.google.com/maps/search/Nara+Park",
+          "mapLabel": "🗺️ 지도",
+          "food": "🦌 센베 과자"
+        },
+        {
+          "time": "15:00",
+          "plan": "우지 마을",
+          "detail": "JR 나라선",
+          "mapUrl": "https://www.google.com/maps/search/Byodoin+Temple",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍵 녹차 디저트"
+        }
+      ]
+    },
+    {
+      "id": "day7",
+      "optionLabel": "Day 7: 우메다/쇼핑 (4/19, 일)",
+      "dateTitle": "📅 4/19 (일) 우메다 쇼핑",
+      "items": [
+        {
+          "time": "13:00",
+          "plan": "우메다 쇼핑",
+          "detail": "JR 순환선 오사카역",
+          "mapUrl": "https://www.google.com/maps/search/Lucua+Osaka",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍛 그릴 호쿠토세이"
+        },
+        {
+          "time": "19:00",
+          "plan": "야경 감상",
+          "detail": "🚶 우메다 인근 도보",
+          "mapUrl": "https://www.google.com/maps/search/Umeda+Sky+Building",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍷 블루버드 / 사쿠라"
+        }
+      ]
+    },
+    {
+      "id": "day8",
+      "optionLabel": "Day 8: 신세카이/야경 (4/20, 월)",
+      "dateTitle": "📅 4/20 (월) 신세카이 & 하루카스",
+      "items": [
+        {
+          "time": "14:00",
+          "plan": "신세카이",
+          "detail": "JR 신이마미야역",
+          "mapUrl": "https://www.google.com/maps/search/Tsutenkaku",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍢 야에카츠 / 다루마"
+        },
+        {
+          "time": "19:00",
+          "plan": "하루카스 300",
+          "detail": "🚶 텐노지역 인근",
+          "mapUrl": "https://www.google.com/maps/search/Abeno+Harukas",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍺 노포 술집"
+        }
+      ]
+    },
+    {
+      "id": "day9",
+      "optionLabel": "Day 9: 히메지 성 (4/21, 화)",
+      "dateTitle": "📅 4/21 (화) 히메지 성",
+      "items": [
+        {
+          "time": "10:00",
+          "plan": "히메지 성",
+          "detail": "JR 신쾌속 이용",
+          "mapUrl": "https://www.google.com/maps/search/Himeji+Castle",
+          "mapLabel": "🗺️ 지도",
+          "food": "🍜 에키소바"
+        },
+        {
+          "time": "19:00",
+          "plan": "마지막 만찬",
+          "detail": "JR 타고 오사카 복귀",
+          "mapUrl": "https://www.google.com/maps/search/Yakiniku+Osaka",
+          "mapLabel": "🗺️ 지도",
+          "food": "🥩 마츠사카규 M"
+        }
+      ]
+    },
+    {
+      "id": "day10",
+      "optionLabel": "Day 10: 귀국 (4/22, 수)",
+      "dateTitle": "📅 4/22 (수) 귀국",
+      "foodHeader": "비고",
+      "items": [
+        {
+          "time": "09:30",
+          "plan": "공항 이동",
+          "detail": "JR 간쿠쾌속 벤텐초 승차",
+          "mapUrl": "https://www.google.com/maps/dir/Bentencho/Kansai+Airport",
+          "mapLabel": "🗺️ 경로",
+          "food": "-"
+        },
+        {
+          "time": "13:10",
+          "plan": "비행기 이륙",
+          "detail": "✈️ 안녕, 간사이!",
+          "food": "공항 면세점"
+        }
+      ]
+    }
+  ]
+}

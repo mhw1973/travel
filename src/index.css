@@ -1,0 +1,19 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f5f7ff;
+}
+
+a {
+  color: inherit;
+}
+
+input,
+button,
+select {
+  font: inherit;
+}

@@ -1,0 +1,246 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+.trip-page {
+  font-family: 'Pretendard', sans-serif;
+  line-height: 1.5;
+  color: #333;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+  background: #fff;
+}
+
+.page-title {
+  text-align: center;
+  color: #1a237e;
+  border-bottom: 3px solid #1a237e;
+  padding-bottom: 10px;
+  margin-top: 0;
+}
+
+.section-title {
+  background: #3f51b5;
+  color: #fff;
+  padding: 10px;
+  border-radius: 5px;
+  margin-top: 30px;
+  font-size: 18px;
+}
+
+.date-title {
+  color: #d32f2f;
+  margin-top: 20px;
+  border-left: 5px solid #d32f2f;
+  padding-left: 10px;
+}
+
+.nav-container {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  padding: 10px;
+  z-index: 1000;
+  border-bottom: 2px solid #1a237e;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.day-selector {
+  padding: 10px;
+  font-size: 16px;
+  border-radius: 5px;
+  border: 2px solid #3f51b5;
+  width: 90%;
+  font-weight: 700;
+}
+
+.hotel-info {
+  background: #fff9c4;
+  padding: 10px;
+  border-radius: 5px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  border: 1px solid #fbc02d;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 14px;
+  table-layout: fixed;
+}
+
+th {
+  background: #e8eaf6;
+  color: #1a237e;
+  border: 1px solid #c5cae9;
+  padding: 10px;
+  text-align: center;
+  font-weight: 700;
+}
+
+td {
+  border: 1px solid #c5cae9;
+  padding: 10px;
+  vertical-align: middle;
+  word-break: keep-all;
+}
+
+.col-time {
+  width: 10%;
+  text-align: center;
+  font-weight: 700;
+  color: #555;
+}
+
+.col-plan {
+  width: 18%;
+  font-weight: 700;
+}
+
+.col-detail {
+  width: 32%;
+  background-color: #fbfbfb;
+  font-size: 13px;
+}
+
+.col-map {
+  width: 12%;
+  text-align: center;
+}
+
+.col-food {
+  width: 28%;
+  color: #d81b60;
+  font-weight: 700;
+}
+
+.map-btn {
+  display: inline-block;
+  background-color: #4caf50;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  text-decoration: none;
+  border: 0;
+  box-shadow: 1px 1px 3px rgb(0 0 0 / 20%);
+}
+
+.account-book {
+  background: #f8f9fa;
+  margin-top: 15px;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #3f51b5;
+}
+
+.acc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-weight: 700;
+  color: #1a237e;
+}
+
+.acc-total {
+  color: #d32f2f;
+}
+
+.expense-form {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.input-field {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  flex: 1;
+}
+
+.amount {
+  max-width: 120px;
+}
+
+.btn-save {
+  background: #1a237e;
+  color: #fff;
+  border: 0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.expense-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+}
+
+.expense-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px dashed #ccc;
+}
+
+.btn-delete {
+  border: 0;
+  background: transparent;
+  color: #d32f2f;
+  cursor: pointer;
+}
+
+.empty-expense {
+  color: #666;
+  padding: 6px 0;
+}
+
+.loading-message,
+.error-message {
+  text-align: center;
+  font-weight: 600;
+}
+
+.error-message {
+  color: #c62828;
+}
+
+@media (max-width: 768px) {
+  .trip-page {
+    padding: 12px;
+  }
+
+  .day-selector {
+    width: 100%;
+    font-size: 14px;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .col-time,
+  .col-plan,
+  .col-detail,
+  .col-map,
+  .col-food {
+    width: auto;
+    min-width: 120px;
+  }
+
+  .expense-form {
+    flex-direction: column;
+  }
+
+  .amount {
+    max-width: none;
+  }
+}
