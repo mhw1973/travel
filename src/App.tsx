@@ -14,7 +14,6 @@ import {
   type FlightRow,
   type HotelRow,
   type PlanRow,
-  type FlightLookupResponse,
   type TripDetailResponse,
   type TripRow,
   type TripsListResponse,
@@ -26,6 +25,8 @@ type Screen = 'auth' | 'home' | 'new' | 'load' | 'trip'
 
 const PASS_KEY = 'travel_app_password'
 const API_BASE = (import.meta.env.VITE_API_BASE?.trim() || 'http://127.0.0.1:8787').replace(/\/$/, '')
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
+let googlePlacesScriptLoader: Promise<boolean> | null = null
 
 const formatMoney = (amount: number, currency: string): string =>
   new Intl.NumberFormat('ko-KR', { style: 'currency', currency }).format(amount)
@@ -47,18 +48,6 @@ const toOptionalInt = (value: string): number | undefined => {
   return Number.isNaN(parsed) ? undefined : parsed
 }
 
-const toDateTimeLocalValue = (iso: string | null): string => {
-  if (!iso) {
-    return ''
-  }
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-  const offset = date.getTimezoneOffset()
-  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16)
-}
-
 const buildGoogleMapsSearchUrl = (query: string): string =>
   `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
 
@@ -75,6 +64,73 @@ const airportQueryFromFlight = (
     return `${name} airport`
   }
   return `${iata} airport`
+}
+
+const loadGooglePlacesScript = async (): Promise<boolean> => {
+  if (!GOOGLE_MAPS_API_KEY) {
+    return false
+  }
+
+  const globalWindow = window as Window & {
+    google?: {
+      maps?: {
+        places?: unknown
+      }
+    }
+  }
+
+  if (globalWindow.google?.maps?.places) {
+    return true
+  }
+
+  if (!googlePlacesScriptLoader) {
+    googlePlacesScriptLoader = new Promise<boolean>((resolve, reject) => {
+      const existing = document.getElementById('google-maps-places-script')
+      if (existing) {
+        existing.addEventListener('load', () => resolve(true), { once: true })
+        existing.addEventListener('error', () => reject(new Error('Google Maps script load failed')), {
+          once: true,
+        })
+        return
+      }
+
+      const script = document.createElement('script')
+      script.id = 'google-maps-places-script'
+      script.async = true
+      script.defer = true
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+        GOOGLE_MAPS_API_KEY,
+      )}&libraries=places`
+      script.onload = () => resolve(true)
+      script.onerror = () => reject(new Error('Google Maps script load failed'))
+      document.head.appendChild(script)
+    })
+  }
+
+  await googlePlacesScriptLoader
+  return true
+}
+
+interface HotelSearchResult {
+  id: string
+  name: string
+  city: string
+  description: string
+  mapUrl: string
+}
+
+const buildFallbackHotelSearchResults = (query: string): HotelSearchResult[] => {
+  const candidates = Array.from(
+    new Set([query, `${query} hotel`, `${query} accommodation`].map((item) => item.trim())),
+  ).filter(Boolean)
+
+  return candidates.map((item, index) => ({
+    id: `fallback-${index}-${item}`,
+    name: item,
+    city: '',
+    description: 'Google Maps 검색',
+    mapUrl: buildGoogleMapsSearchUrl(item),
+  }))
 }
 
 interface NewFlightForm {
@@ -149,7 +205,8 @@ function App() {
   const [newExpense, setNewExpense] = useState({ item: '', amount: '', category: '' })
   const [newTripFlights, setNewTripFlights] = useState<NewFlightForm[]>([])
   const [newTripHotels, setNewTripHotels] = useState<NewHotelForm[]>([])
-  const [flightLookupIndex, setFlightLookupIndex] = useState<number | null>(null)
+  const [hotelSearchResults, setHotelSearchResults] = useState<Record<number, HotelSearchResult[]>>({})
+  const [hotelSearchLoadingIndex, setHotelSearchLoadingIndex] = useState<number | null>(null)
 
   const visibleDays = useMemo(() => {
     if (selectedDay === 'all') {
@@ -230,15 +287,6 @@ function App() {
 
   const removeFlightDraft = (index: number): void => {
     setNewTripFlights((prev) => prev.filter((_, idx) => idx !== index))
-    setFlightLookupIndex((prev) => {
-      if (prev === null) {
-        return null
-      }
-      if (prev === index) {
-        return null
-      }
-      return prev > index ? prev - 1 : prev
-    })
   }
 
   const addHotelDraft = (): void => {
@@ -253,52 +301,146 @@ function App() {
 
   const removeHotelDraft = (index: number): void => {
     setNewTripHotels((prev) => prev.filter((_, idx) => idx !== index))
+    setHotelSearchResults((prev) => {
+      const next: Record<number, HotelSearchResult[]> = {}
+      Object.entries(prev).forEach(([key, value]) => {
+        const current = Number(key)
+        if (current < index) {
+          next[current] = value
+        } else if (current > index) {
+          next[current - 1] = value
+        }
+      })
+      return next
+    })
   }
 
-  const lookupFlightByNumber = async (index: number): Promise<void> => {
-    const draft = newTripFlights[index]
+  const searchHotelsOnGoogle = async (index: number): Promise<void> => {
+    const draft = newTripHotels[index]
     if (!draft) {
       return
     }
 
-    const flightIata = draft.flightNo.trim().toUpperCase()
-    if (!flightIata) {
+    const query = `${draft.name} ${draft.city}`.trim()
+    if (!query) {
+      setHotelSearchResults((prev) => ({ ...prev, [index]: [] }))
       return
     }
 
-    const date = draft.departAt ? draft.departAt.slice(0, 10) : newTrip.startDate
-    const query = new URLSearchParams({ flightIata })
-    if (date) {
-      query.set('date', date)
-    }
-
-    setFlightLookupIndex(index)
+    setHotelSearchLoadingIndex(index)
     setMessage(null)
     try {
-      const data = await callApi<FlightLookupResponse>(`/api/flight-lookup?${query.toString()}`)
-      setNewTripFlights((prev) =>
-        prev.map((item, idx) => {
-          if (idx !== index) {
-            return item
+      const loaded = await loadGooglePlacesScript()
+      if (!loaded) {
+        setHotelSearchResults((prev) => ({
+          ...prev,
+          [index]: buildFallbackHotelSearchResults(query),
+        }))
+        return
+      }
+
+      const globalWindow = window as Window & {
+        google?: {
+          maps?: {
+            places?: {
+              AutocompleteService?: new () => {
+                getPlacePredictions: (
+                  request: { input: string; types?: string[] },
+                  callback: (
+                    predictions: Array<{
+                      place_id?: string
+                      description?: string
+                      structured_formatting?: { main_text?: string }
+                    }> | null,
+                    status: string,
+                  ) => void,
+                ) => void
+              }
+              PlacesServiceStatus?: { OK?: string; ZERO_RESULTS?: string }
+            }
           }
-          return {
-            ...item,
-            fromCode: data.item.fromCode ?? item.fromCode,
-            fromAirport: data.item.fromAirport ?? item.fromAirport,
-            toCode: data.item.toCode ?? item.toCode,
-            toAirport: data.item.toAirport ?? item.toAirport,
-            departAt: data.item.departAt ? toDateTimeLocalValue(data.item.departAt) : item.departAt,
-            arriveAt: data.item.arriveAt ? toDateTimeLocalValue(data.item.arriveAt) : item.arriveAt,
-            airline: data.item.airline ?? item.airline,
-            flightNo: data.item.flightNo || item.flightNo,
-          }
-        }),
-      )
+        }
+      }
+
+      const googleMaps = globalWindow.google?.maps
+      const places = googleMaps?.places
+      const Service = places?.AutocompleteService
+      if (!Service) {
+        throw new Error('Google Places service unavailable')
+      }
+
+      const statusOk = places?.PlacesServiceStatus?.OK ?? 'OK'
+      const statusZero = places?.PlacesServiceStatus?.ZERO_RESULTS ?? 'ZERO_RESULTS'
+      const service = new Service()
+
+      const predictions = await new Promise<
+        Array<{
+          place_id?: string
+          description?: string
+          structured_formatting?: { main_text?: string }
+        }>
+      >((resolve, reject) => {
+        service.getPlacePredictions(
+          { input: query, types: ['lodging'] },
+          (items, status) => {
+            if (status === statusOk) {
+              resolve(items ?? [])
+              return
+            }
+            if (status === statusZero) {
+              resolve([])
+              return
+            }
+            reject(new Error(`Google Places 검색 실패: ${status}`))
+          },
+        )
+      })
+
+      const items = predictions.slice(0, 8).map((item, order) => {
+        const description = item.description?.trim() || query
+        const name = item.structured_formatting?.main_text?.trim() || description
+        const parts = description
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean)
+        const city = parts.length > 1 ? parts[1] : ''
+
+        return {
+          id: item.place_id || `hotel-${index}-${order}`,
+          name,
+          city,
+          description,
+          mapUrl: buildGoogleMapsSearchUrl(description),
+        } as HotelSearchResult
+      })
+
+      setHotelSearchResults((prev) => ({
+        ...prev,
+        [index]: items.length > 0 ? items : buildFallbackHotelSearchResults(query),
+      }))
     } catch (error) {
       setMessage(getErrorMessage(error))
+      setHotelSearchResults((prev) => ({
+        ...prev,
+        [index]: buildFallbackHotelSearchResults(query),
+      }))
     } finally {
-      setFlightLookupIndex(null)
+      setHotelSearchLoadingIndex((prev) => (prev === index ? null : prev))
     }
+  }
+
+  const applyHotelSearchResult = (index: number, result: HotelSearchResult): void => {
+    setNewTripHotels((prev) =>
+      prev.map((item, idx) =>
+        idx === index
+          ? {
+              ...item,
+              name: result.name,
+              city: result.city || item.city,
+            }
+          : item,
+      ),
+    )
   }
 
   const mapCreateFlights = (): CreateFlightInput[] =>
@@ -363,7 +505,8 @@ function App() {
       setNewTrip({ title: '', destination: '', startDate: '', endDate: '', currency: 'JPY', memo: '', status: 'draft' })
       setNewTripFlights([])
       setNewTripHotels([])
-      setFlightLookupIndex(null)
+      setHotelSearchResults({})
+      setHotelSearchLoadingIndex(null)
     } catch (error) {
       setMessage(getErrorMessage(error))
       setLoading(false)
@@ -519,8 +662,7 @@ function App() {
                   <input
                     value={flight.flightNo}
                     onChange={(e) => updateFlightDraft(index, 'flightNo', e.target.value)}
-                    onBlur={() => void lookupFlightByNumber(index)}
-                    placeholder="편명 (입력 후 자동조회)"
+                    placeholder="편명"
                   />
                   <input type="number" value={flight.price} onChange={(e) => updateFlightDraft(index, 'price', e.target.value)} placeholder="금액(선택)" />
                 </div>
@@ -541,14 +683,6 @@ function App() {
                   >
                     도착공항 지도
                   </a>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={() => void lookupFlightByNumber(index)}
-                    disabled={flightLookupIndex === index}
-                  >
-                    {flightLookupIndex === index ? '조회중...' : '편명 조회'}
-                  </button>
                   <button type="button" className="btn ghost" onClick={() => removeFlightDraft(index)}>삭제</button>
                 </div>
                 <p className="muted">지도는 새 탭으로 열립니다. 이 앱 탭으로 돌아오면 계속 입력할 수 있습니다.</p>
@@ -561,29 +695,58 @@ function App() {
               <h3>호텔 (여러 개 가능)</h3>
               <button type="button" className="btn ghost" onClick={addHotelDraft}>+ 호텔</button>
             </div>
-            {newTripHotels.map((hotel, index) => (
-              <div className="draft-card" key={`hotel-${index}`}>
-                <div className="draft-grid">
-                  <input value={hotel.name} onChange={(e) => updateHotelDraft(index, 'name', e.target.value)} placeholder="호텔명" />
-                  <input value={hotel.city} onChange={(e) => updateHotelDraft(index, 'city', e.target.value)} placeholder="도시" />
-                  <input type="date" value={hotel.checkInDate} onChange={(e) => updateHotelDraft(index, 'checkInDate', e.target.value)} />
-                  <input type="date" value={hotel.checkOutDate} onChange={(e) => updateHotelDraft(index, 'checkOutDate', e.target.value)} />
-                  <input type="number" value={hotel.totalPrice} onChange={(e) => updateHotelDraft(index, 'totalPrice', e.target.value)} placeholder="총 숙박비(선택)" />
+            {!GOOGLE_MAPS_API_KEY ? (
+              <p className="muted">Google API 키가 없어서 검색 결과는 간단한 Google Maps 링크 리스트로 표시됩니다.</p>
+            ) : null}
+            {newTripHotels.map((hotel, index) => {
+              const results = hotelSearchResults[index] ?? []
+              return (
+                <div className="draft-card" key={`hotel-${index}`}>
+                  <div className="draft-grid">
+                    <input value={hotel.name} onChange={(e) => updateHotelDraft(index, 'name', e.target.value)} placeholder="호텔명" />
+                    <input value={hotel.city} onChange={(e) => updateHotelDraft(index, 'city', e.target.value)} placeholder="도시" />
+                    <input type="date" value={hotel.checkInDate} onChange={(e) => updateHotelDraft(index, 'checkInDate', e.target.value)} />
+                    <input type="date" value={hotel.checkOutDate} onChange={(e) => updateHotelDraft(index, 'checkOutDate', e.target.value)} />
+                    <input type="number" value={hotel.totalPrice} onChange={(e) => updateHotelDraft(index, 'totalPrice', e.target.value)} placeholder="총 숙박비(선택)" />
+                  </div>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      onClick={() => void searchHotelsOnGoogle(index)}
+                      disabled={hotelSearchLoadingIndex === index}
+                    >
+                      {hotelSearchLoadingIndex === index ? '검색중...' : '구글 호텔 검색'}
+                    </button>
+                    <a
+                      className="btn ghost map-link"
+                      href={buildGoogleMapsSearchUrl(`${hotel.name} ${hotel.city}`.trim() || 'hotel')}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      호텔 지도
+                    </a>
+                    <button type="button" className="btn ghost" onClick={() => removeHotelDraft(index)}>삭제</button>
+                  </div>
+                  {results.length > 0 ? (
+                    <ul className="search-list">
+                      {results.map((result) => (
+                        <li key={result.id} className="search-item">
+                          <button type="button" className="search-pick" onClick={() => applyHotelSearchResult(index, result)}>
+                            <strong>{result.name}</strong>
+                            <span>{result.description}</span>
+                          </button>
+                          <a className="inline-link" href={result.mapUrl} target="_blank" rel="noreferrer">
+                            지도
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <p className="muted">지도는 새 탭으로 열립니다. 앱 탭으로 바로 돌아올 수 있습니다.</p>
                 </div>
-                <div className="actions">
-                  <a
-                    className="btn ghost map-link"
-                    href={buildGoogleMapsSearchUrl(`${hotel.name} ${hotel.city}`.trim() || 'hotel')}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    호텔 지도
-                  </a>
-                  <button type="button" className="btn ghost" onClick={() => removeHotelDraft(index)}>삭제</button>
-                </div>
-                <p className="muted">지도는 새 탭으로 열립니다. 앱 탭으로 바로 돌아올 수 있습니다.</p>
-              </div>
-            ))}
+              )
+            })}
           </section>
 
           <div className="actions">

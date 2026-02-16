@@ -238,6 +238,49 @@ body {
   text-decoration: underline;
 }
 
+.search-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.search-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
+.search-item:first-child {
+  border-top: 0;
+}
+
+.search-pick {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  color: var(--ink);
+}
+
+.search-pick strong {
+  font-size: 14px;
+}
+
+.search-pick span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
