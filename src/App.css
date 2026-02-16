@@ -1,244 +1,200 @@
-.trip-page {
-  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', sans-serif;
-  line-height: 1.5;
-  color: #333;
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 20px;
-  background: #fff;
+:root {
+  --bg: #f2f6fb;
+  --panel: #ffffff;
+  --ink: #1d2636;
+  --muted: #5f6b7a;
+  --primary: #0f5fa8;
+  --primary-strong: #094277;
+  --line: #d7e0ea;
 }
 
-.page-title {
-  text-align: center;
-  color: #1a237e;
-  border-bottom: 3px solid #1a237e;
-  padding-bottom: 10px;
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 20% -20%, #d9ebff, transparent 40%), var(--bg);
+  color: var(--ink);
+  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', sans-serif;
+}
+
+.app-shell {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 8px 20px rgb(26 50 82 / 8%);
+}
+
+.panel h2 {
   margin-top: 0;
 }
 
-.section-title {
-  background: #3f51b5;
-  color: #fff;
-  padding: 10px;
-  border-radius: 5px;
-  margin-top: 30px;
-  font-size: 18px;
-}
-
-.date-title {
-  color: #d32f2f;
-  margin-top: 20px;
-  border-left: 5px solid #d32f2f;
-  padding-left: 10px;
-}
-
-.nav-container {
-  position: sticky;
-  top: 0;
-  background: #fff;
-  padding: 10px;
-  z-index: 1000;
-  border-bottom: 2px solid #1a237e;
-  text-align: center;
-  margin-bottom: 20px;
-}
-
-.day-selector {
-  padding: 10px;
-  font-size: 16px;
-  border-radius: 5px;
-  border: 2px solid #3f51b5;
-  width: 90%;
-  font-weight: 700;
-}
-
-.hotel-info {
-  background: #fff9c4;
-  padding: 10px;
-  border-radius: 5px;
-  font-weight: 700;
+.panel input,
+.panel textarea,
+.panel select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   margin-bottom: 10px;
-  border: 1px solid #fbc02d;
+  font: inherit;
+}
+
+.grid-form label {
+  display: block;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn.primary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), #2f83d0);
+}
+
+.btn.secondary {
+  color: #fff;
+  background: #34495e;
+}
+
+.btn.ghost {
+  color: var(--ink);
+  background: #e7eef7;
+}
+
+.notice {
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.notice.error {
+  color: #c62828;
+}
+
+.trip-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.trip-card {
+  border: 1px solid var(--line);
+  background: #f9fbff;
+  border-radius: 10px;
+  text-align: left;
+  padding: 12px;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.trip-card strong {
+  font-size: 16px;
+}
+
+.trip-card span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.day-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.day-card h3 {
+  margin: 2px 0 8px;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 10px;
+  margin-bottom: 8px;
+}
+
+th,
+td {
+  border: 1px solid var(--line);
+  text-align: left;
+  padding: 8px;
   font-size: 14px;
-  table-layout: fixed;
 }
 
 th {
-  background: #e8eaf6;
-  color: #1a237e;
-  border: 1px solid #c5cae9;
+  background: #eef4fb;
+}
+
+.inline-forms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.subform {
+  border: 1px solid var(--line);
+  border-radius: 10px;
   padding: 10px;
-  text-align: center;
-  font-weight: 700;
 }
 
-td {
-  border: 1px solid #c5cae9;
-  padding: 10px;
-  vertical-align: middle;
-  word-break: keep-all;
+.subform h3 {
+  margin: 2px 0 8px;
+  font-size: 16px;
 }
 
-.col-time {
-  width: 10%;
-  text-align: center;
-  font-weight: 700;
-  color: #555;
-}
-
-.col-plan {
-  width: 18%;
-  font-weight: 700;
-}
-
-.col-detail {
-  width: 32%;
-  background-color: #fbfbfb;
-  font-size: 13px;
-}
-
-.col-map {
-  width: 12%;
-  text-align: center;
-}
-
-.col-food {
-  width: 28%;
-  color: #d81b60;
-  font-weight: 700;
-}
-
-.map-btn {
-  display: inline-block;
-  background-color: #4caf50;
-  color: #fff;
-  padding: 6px 10px;
-  border-radius: 5px;
-  font-size: 12px;
-  text-decoration: none;
-  border: 0;
-  box-shadow: 1px 1px 3px rgb(0 0 0 / 20%);
-}
-
-.account-book {
-  background: #f8f9fa;
-  margin-top: 15px;
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid #3f51b5;
-}
-
-.acc-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  font-weight: 700;
-  color: #1a237e;
-}
-
-.acc-total {
-  color: #d32f2f;
-}
-
-.expense-form {
-  display: flex;
-  gap: 5px;
-  margin-bottom: 10px;
-}
-
-.input-field {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  flex: 1;
-}
-
-.amount {
-  max-width: 120px;
-}
-
-.btn-save {
-  background: #1a237e;
-  color: #fff;
-  border: 0;
-  padding: 8px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.expense-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 13px;
-}
-
-.expense-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 5px 0;
-  border-bottom: 1px dashed #ccc;
-}
-
-.btn-delete {
-  border: 0;
-  background: transparent;
-  color: #d32f2f;
-  cursor: pointer;
-}
-
-.empty-expense {
-  color: #666;
-  padding: 6px 0;
-}
-
-.loading-message,
-.error-message {
-  text-align: center;
-  font-weight: 600;
-}
-
-.error-message {
-  color: #c62828;
+.muted {
+  color: var(--muted);
+  font-size: 14px;
 }
 
 @media (max-width: 768px) {
-  .trip-page {
-    padding: 12px;
+  .topbar h1 {
+    font-size: 22px;
   }
 
-  .day-selector {
-    width: 100%;
-    font-size: 14px;
+  .inline-forms {
+    grid-template-columns: 1fr;
   }
 
   table {
     display: block;
     overflow-x: auto;
-    white-space: nowrap;
-  }
-
-  .col-time,
-  .col-plan,
-  .col-detail,
-  .col-map,
-  .col-food {
-    width: auto;
-    min-width: 120px;
-  }
-
-  .expense-form {
-    flex-direction: column;
-  }
-
-  .amount {
-    max-width: none;
   }
 }
+

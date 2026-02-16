@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:apply": "node scripts/apply-schema.mjs",
+    "worker:dev": "wrangler dev --config wrangler.toml",
+    "worker:deploy": "wrangler deploy --config wrangler.toml",
+    "worker:check": "wrangler deploy --dry-run --config wrangler.toml"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -15,6 +19,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@libsql/client": "^0.17.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
@@ -25,6 +30,7 @@
     "globals": "^16.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "wrangler": "^4.47.0"
   }
 }

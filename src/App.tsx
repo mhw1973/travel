@@ -1,321 +1,351 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { ChangeEvent, FormEvent } from 'react'
+import { useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
+import {
+  type ApiOptions,
+  apiRequest,
+  getErrorMessage,
+  type CreateExpensePayload,
+  type CreatePlanPayload,
+  type CreateTripPayload,
+  type DayRow,
+  type ExpenseRow,
+  type PlanRow,
+  type TripDetailResponse,
+  type TripRow,
+  type TripsListResponse,
+  verifyPassword,
+} from './api'
 import './App.css'
 
-interface TripStop {
-  time: string
-  plan: string
-  detail: string
-  mapUrl?: string
-  mapLabel?: string
-  food?: string
-}
+type Screen = 'auth' | 'home' | 'new' | 'load' | 'trip'
 
-interface TripDay {
-  id: string
-  optionLabel: string
-  dateTitle: string
-  sectionTitle?: string
-  hotelInfo?: string
-  foodHeader?: string
-  items: TripStop[]
-}
+const PASS_KEY = 'travel_app_password'
+const API_BASE = (import.meta.env.VITE_API_BASE?.trim() || 'http://127.0.0.1:8787').replace(/\/$/, '')
 
-interface ItineraryData {
-  title: string
-  allOptionLabel: string
-  defaultFoodHeader: string
-  days: TripDay[]
-}
+const formatMoney = (amount: number, currency: string): string =>
+  new Intl.NumberFormat('ko-KR', { style: 'currency', currency }).format(amount)
 
-interface Expense {
-  id: number
-  item: string
-  amt: number
-}
-
-interface ExpenseInput {
-  item: string
-  amt: string
-}
-
-const EMPTY_INPUT: ExpenseInput = { item: '', amt: '' }
-
-const sanitizeExpenses = (raw: unknown): Expense[] => {
-  if (!Array.isArray(raw)) {
-    return []
+const toTimeLabel = (value: number | null): string => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '-'
   }
-
-  return raw.filter((value): value is Expense => {
-    if (typeof value !== 'object' || value === null) {
-      return false
-    }
-
-    const exp = value as Partial<Expense>
-    return (
-      typeof exp.id === 'number' &&
-      Number.isFinite(exp.id) &&
-      typeof exp.item === 'string' &&
-      typeof exp.amt === 'number' &&
-      Number.isFinite(exp.amt)
-    )
-  })
+  const hh = String(Math.floor(value / 60)).padStart(2, '0')
+  const mm = String(value % 60).padStart(2, '0')
+  return `${hh}:${mm}`
 }
-
-const readDayExpenses = (dayId: string): Expense[] => {
-  try {
-    const raw = localStorage.getItem(`exp-${dayId}`)
-    if (!raw) {
-      return []
-    }
-    return sanitizeExpenses(JSON.parse(raw))
-  } catch {
-    return []
-  }
-}
-
-const writeDayExpenses = (dayId: string, expenses: Expense[]): void => {
-  try {
-    localStorage.setItem(`exp-${dayId}`, JSON.stringify(expenses))
-  } catch {
-    // Ignore storage write errors (private mode/quota).
-  }
-}
-
-const formatYen = (value: number): string => `¥${value.toLocaleString('ja-JP')}`
 
 function App() {
-  const [itinerary, setItinerary] = useState<ItineraryData | null>(null)
+  const [screen, setScreen] = useState<Screen>('auth')
+  const [password, setPassword] = useState(localStorage.getItem(PASS_KEY) ?? '')
+  const [authInput, setAuthInput] = useState(localStorage.getItem(PASS_KEY) ?? '')
+  const [trips, setTrips] = useState<TripRow[]>([])
+  const [trip, setTrip] = useState<TripRow | null>(null)
+  const [days, setDays] = useState<DayRow[]>([])
+  const [plans, setPlans] = useState<PlanRow[]>([])
+  const [expenses, setExpenses] = useState<ExpenseRow[]>([])
   const [selectedDay, setSelectedDay] = useState('all')
-  const [expensesByDay, setExpensesByDay] = useState<Record<string, Expense[]>>({})
-  const [inputsByDay, setInputsByDay] = useState<Record<string, ExpenseInput>>({})
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    const loadItinerary = async (): Promise<void> => {
-      try {
-        const dataUrl = `${import.meta.env.BASE_URL}data/itinerary.json`
-        const response = await fetch(dataUrl)
-
-        if (!response.ok) {
-          throw new Error(`Failed to load itinerary: ${response.status}`)
-        }
-
-        const data = (await response.json()) as ItineraryData
-        setItinerary(data)
-      } catch {
-        setErrorMessage('일정 데이터를 불러오지 못했습니다. JSON 경로를 확인하세요.')
-      }
-    }
-
-    void loadItinerary()
-  }, [])
-
-  useEffect(() => {
-    if (!itinerary) {
-      return
-    }
-
-    const nextExpenses = itinerary.days.reduce<Record<string, Expense[]>>((acc, day) => {
-      acc[day.id] = readDayExpenses(day.id)
-      return acc
-    }, {})
-
-    const nextInputs = itinerary.days.reduce<Record<string, ExpenseInput>>((acc, day) => {
-      acc[day.id] = { ...EMPTY_INPUT }
-      return acc
-    }, {})
-
-    setExpensesByDay(nextExpenses)
-    setInputsByDay(nextInputs)
-  }, [itinerary])
+  const [newTrip, setNewTrip] = useState<CreateTripPayload>({
+    title: '',
+    destination: '',
+    startDate: '',
+    endDate: '',
+    currency: 'JPY',
+    memo: '',
+    status: 'draft',
+  })
+  const [newPlan, setNewPlan] = useState({ place: '', detail: '', startTime: '' })
+  const [newExpense, setNewExpense] = useState({ item: '', amount: '', category: '' })
 
   const visibleDays = useMemo(() => {
-    if (!itinerary) {
-      return []
+    if (selectedDay === 'all') {
+      return days
     }
-    return itinerary.days.filter((day) => selectedDay === 'all' || day.id === selectedDay)
-  }, [itinerary, selectedDay])
+    return days.filter((day) => day.id === selectedDay)
+  }, [days, selectedDay])
 
-  const handleDayChange = (event: ChangeEvent<HTMLSelectElement>): void => {
-    setSelectedDay(event.target.value)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+  const selectedDayId = selectedDay === 'all' ? days[0]?.id ?? '' : selectedDay
+  const selectedDayCurrency = trip?.currency ?? 'JPY'
+
+  const mapTripData = (data: TripDetailResponse): void => {
+    setTrip(data.trip)
+    setDays(data.days)
+    setPlans(data.plans)
+    setExpenses(data.expenses)
+    setSelectedDay('all')
+    setScreen('trip')
   }
 
-  const updateInput = (dayId: string, field: keyof ExpenseInput, value: string): void => {
-    setInputsByDay((prev) => ({
-      ...prev,
-      [dayId]: {
-        ...(prev[dayId] ?? EMPTY_INPUT),
-        [field]: value,
-      },
-    }))
-  }
+  const callApi = async <T,>(path: string, options?: ApiOptions): Promise<T> =>
+    apiRequest<T>(API_BASE, path, password, options)
 
-  const handleAddExpense = (dayId: string, event: FormEvent<HTMLFormElement>): void => {
+  const handleVerifyPassword = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
+    setLoading(true)
+    setMessage(null)
+    try {
+      await verifyPassword(API_BASE, authInput)
+      setPassword(authInput)
+      localStorage.setItem(PASS_KEY, authInput)
+      setScreen('home')
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }
 
-    const currentInput = inputsByDay[dayId] ?? EMPTY_INPUT
-    const item = currentInput.item.trim()
-    const amount = Number.parseInt(currentInput.amt, 10)
+  const loadTrips = async (): Promise<void> => {
+    setLoading(true)
+    setMessage(null)
+    try {
+      const data = await callApi<TripsListResponse>('/api/trips')
+      setTrips(data.items)
+      setScreen('load')
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }
 
-    if (!item || Number.isNaN(amount) || amount <= 0) {
+  const openTrip = async (tripId: string): Promise<void> => {
+    setLoading(true)
+    setMessage(null)
+    try {
+      const data = await callApi<TripDetailResponse>(`/api/trips/${encodeURIComponent(tripId)}`)
+      mapTripData(data)
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submitNewTrip = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+    setLoading(true)
+    setMessage(null)
+    try {
+      const created = await callApi<{ trip: TripRow }>('/api/trips', {
+        method: 'POST',
+        body: JSON.stringify(newTrip),
+      })
+      await openTrip(created.trip.id)
+      setNewTrip({ title: '', destination: '', startDate: '', endDate: '', currency: 'JPY', memo: '', status: 'draft' })
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+      setLoading(false)
+    }
+  }
+
+  const addPlan = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+    if (!trip || !selectedDayId) {
       return
     }
-
-    const newExpense: Expense = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      item,
-      amt: amount,
+    const payload: CreatePlanPayload = {
+      dayId: selectedDayId,
+      place: newPlan.place.trim(),
+      detail: newPlan.detail.trim() || undefined,
+      startMin: newPlan.startTime ? Number.parseInt(newPlan.startTime, 10) : undefined,
     }
-
-    setExpensesByDay((prev) => {
-      const nextDayExpenses = [...(prev[dayId] ?? []), newExpense]
-      writeDayExpenses(dayId, nextDayExpenses)
-      return { ...prev, [dayId]: nextDayExpenses }
-    })
-
-    setInputsByDay((prev) => ({
-      ...prev,
-      [dayId]: { ...EMPTY_INPUT },
-    }))
+    if (!payload.place) {
+      return
+    }
+    setLoading(true)
+    setMessage(null)
+    try {
+      await callApi(`/api/trips/${encodeURIComponent(trip.id)}/plans`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      await openTrip(trip.id)
+      setNewPlan({ place: '', detail: '', startTime: '' })
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+      setLoading(false)
+    }
   }
 
-  const handleDeleteExpense = (dayId: string, expenseId: number): void => {
-    setExpensesByDay((prev) => {
-      const nextDayExpenses = (prev[dayId] ?? []).filter((expense) => expense.id !== expenseId)
-      writeDayExpenses(dayId, nextDayExpenses)
-      return { ...prev, [dayId]: nextDayExpenses }
-    })
+  const addExpense = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault()
+    if (!trip || !selectedDayId) {
+      return
+    }
+    const amount = Number.parseInt(newExpense.amount, 10)
+    if (!newExpense.item.trim() || Number.isNaN(amount) || amount <= 0) {
+      return
+    }
+    const payload: CreateExpensePayload = {
+      dayId: selectedDayId,
+      item: newExpense.item.trim(),
+      amount,
+      currency: selectedDayCurrency,
+      category: newExpense.category.trim() || undefined,
+    }
+    setLoading(true)
+    setMessage(null)
+    try {
+      await callApi(`/api/trips/${encodeURIComponent(trip.id)}/expenses`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      await openTrip(trip.id)
+      setNewExpense({ item: '', amount: '', category: '' })
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+      setLoading(false)
+    }
   }
 
-  if (errorMessage) {
-    return (
-      <main className="trip-page">
-        <h1 className="page-title">✈️ 9박 10일 간사이 여행 명령서 (Expert)</h1>
-        <p className="error-message">{errorMessage}</p>
-      </main>
-    )
-  }
-
-  if (!itinerary) {
-    return (
-      <main className="trip-page">
-        <h1 className="page-title">✈️ 9박 10일 간사이 여행 명령서 (Expert)</h1>
-        <p className="loading-message">일정 데이터를 불러오는 중...</p>
-      </main>
-    )
+  const logout = (): void => {
+    localStorage.removeItem(PASS_KEY)
+    setPassword('')
+    setAuthInput('')
+    setScreen('auth')
+    setTrip(null)
+    setDays([])
+    setPlans([])
+    setExpenses([])
   }
 
   return (
-    <main className="trip-page">
-      <h1 className="page-title">{itinerary.title}</h1>
+    <main className="app-shell">
+      <header className="topbar">
+        <h1>Travel Command Center</h1>
+        {screen !== 'auth' ? (
+          <button type="button" className="btn ghost" onClick={logout}>
+            로그아웃
+          </button>
+        ) : null}
+      </header>
 
-      <div className="nav-container">
-        <select className="day-selector" value={selectedDay} onChange={handleDayChange}>
-          <option value="all">{itinerary.allOptionLabel}</option>
-          {itinerary.days.map((day) => (
-            <option key={day.id} value={day.id}>
-              {day.optionLabel}
-            </option>
-          ))}
-        </select>
-      </div>
+      {message ? <p className="notice error">{message}</p> : null}
+      {loading ? <p className="notice">처리 중...</p> : null}
 
-      {visibleDays.map((day) => {
-        const expenses = expensesByDay[day.id] ?? []
-        const total = expenses.reduce((sum, expense) => sum + expense.amt, 0)
-        const input = inputsByDay[day.id] ?? EMPTY_INPUT
-        const foodHeader = day.foodHeader ?? itinerary.defaultFoodHeader
+      {screen === 'auth' ? (
+        <form className="panel" onSubmit={handleVerifyPassword}>
+          <h2>비밀번호 인증</h2>
+          <input type="password" value={authInput} onChange={(e) => setAuthInput(e.target.value)} placeholder="앱 비밀번호" required />
+          <button type="submit" className="btn primary" disabled={loading}>
+            시작하기
+          </button>
+        </form>
+      ) : null}
 
-        return (
-          <section key={day.id} className="day-section">
-            {day.sectionTitle ? <h2 className="section-title">{day.sectionTitle}</h2> : null}
-            {day.hotelInfo ? <div className="hotel-info">{day.hotelInfo}</div> : null}
-            <h3 className="date-title">{day.dateTitle}</h3>
+      {screen === 'home' ? (
+        <section className="panel">
+          <h2>무엇을 할까요?</h2>
+          <div className="actions">
+            <button type="button" className="btn primary" onClick={() => setScreen('new')}>
+              새여행
+            </button>
+            <button type="button" className="btn secondary" onClick={() => void loadTrips()}>
+              여행불러오기
+            </button>
+          </div>
+        </section>
+      ) : null}
 
-            <table>
-              <thead>
-                <tr>
-                  <th className="col-time">시간</th>
-                  <th className="col-plan">일정</th>
-                  <th className="col-detail">이동 정보</th>
-                  <th className="col-map">구글맵</th>
-                  <th className="col-food">{foodHeader}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {day.items.map((stop, index) => (
-                  <tr key={`${day.id}-${stop.time}-${index}`}>
-                    <td className="col-time">{stop.time}</td>
-                    <td className="col-plan">{stop.plan}</td>
-                    <td className="col-detail">{stop.detail}</td>
-                    <td className="col-map">
-                      {stop.mapUrl ? (
-                        <a
-                          href={stop.mapUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="map-btn"
-                        >
-                          {stop.mapLabel ?? '🗺️ 지도'}
-                        </a>
-                      ) : null}
-                    </td>
-                    <td className="col-food">{stop.food ?? '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {screen === 'new' ? (
+        <form className="panel grid-form" onSubmit={submitNewTrip}>
+          <h2>새여행 만들기</h2>
+          <input value={newTrip.title} onChange={(e) => setNewTrip({ ...newTrip, title: e.target.value })} placeholder="여행 제목" required />
+          <input value={newTrip.destination} onChange={(e) => setNewTrip({ ...newTrip, destination: e.target.value })} placeholder="여행지" required />
+          <label>시작일<input type="date" value={newTrip.startDate} onChange={(e) => setNewTrip({ ...newTrip, startDate: e.target.value })} required /></label>
+          <label>종료일<input type="date" value={newTrip.endDate} onChange={(e) => setNewTrip({ ...newTrip, endDate: e.target.value })} required /></label>
+          <select value={newTrip.currency} onChange={(e) => setNewTrip({ ...newTrip, currency: e.target.value })}>
+            <option value="JPY">JPY</option>
+            <option value="KRW">KRW</option>
+            <option value="USD">USD</option>
+          </select>
+          <textarea value={newTrip.memo} onChange={(e) => setNewTrip({ ...newTrip, memo: e.target.value })} placeholder="메모 (선택)" rows={3} />
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>뒤로</button>
+            <button type="submit" className="btn primary" disabled={loading}>생성</button>
+          </div>
+        </form>
+      ) : null}
 
-            <div className="account-book">
-              <div className="acc-header">
-                <span>💰 {day.id.toUpperCase()} 가계부</span>
-                <span className="acc-total">{formatYen(total)}</span>
-              </div>
+      {screen === 'load' ? (
+        <section className="panel">
+          <h2>여행불러오기</h2>
+          <div className="trip-list">
+            {trips.map((item) => (
+              <button key={item.id} type="button" className="trip-card" onClick={() => void openTrip(item.id)}>
+                <strong>{item.title}</strong>
+                <span>{item.destination}</span>
+                <span>{item.start_date} ~ {item.end_date}</span>
+              </button>
+            ))}
+            {trips.length === 0 ? <p>저장된 여행이 없습니다.</p> : null}
+          </div>
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>뒤로</button>
+          </div>
+        </section>
+      ) : null}
 
-              <form className="expense-form" onSubmit={(event) => handleAddExpense(day.id, event)}>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="항목"
-                  value={input.item}
-                  onChange={(event) => updateInput(day.id, 'item', event.target.value)}
-                />
-                <input
-                  type="number"
-                  className="input-field amount"
-                  placeholder="금액"
-                  value={input.amt}
-                  onChange={(event) => updateInput(day.id, 'amt', event.target.value)}
-                />
-                <button className="btn-save" type="submit">
-                  저장
-                </button>
+      {screen === 'trip' && trip ? (
+        <section className="panel">
+          <h2>{trip.title}</h2>
+          <p className="muted">{trip.destination} | {trip.start_date} ~ {trip.end_date}</p>
+          <label>일자 선택
+            <select value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)}>
+              <option value="all">전체</option>
+              {days.map((day) => <option key={day.id} value={day.id}>Day {day.day_no} ({day.date})</option>)}
+            </select>
+          </label>
+
+          {visibleDays.map((day) => {
+            const dayPlans = plans.filter((plan) => plan.day_id === day.id)
+            const dayExpenses = expenses.filter((expense) => expense.day_id === day.id)
+            const total = dayExpenses.reduce((sum, item) => sum + item.amount, 0)
+            return (
+              <article key={day.id} className="day-card">
+                <h3>Day {day.day_no} | {day.date}</h3>
+                <table>
+                  <thead><tr><th>시간</th><th>일정</th><th>상세</th></tr></thead>
+                  <tbody>
+                    {dayPlans.map((plan) => <tr key={plan.id}><td>{toTimeLabel(plan.start_min)}</td><td>{plan.place}</td><td>{plan.detail ?? '-'}</td></tr>)}
+                    {dayPlans.length === 0 ? <tr><td colSpan={3}>등록된 일정 없음</td></tr> : null}
+                  </tbody>
+                </table>
+                <p className="muted">지출합계: {formatMoney(total, trip.currency)}</p>
+              </article>
+            )
+          })}
+
+          {selectedDay !== 'all' ? (
+            <div className="inline-forms">
+              <form className="subform" onSubmit={addPlan}>
+                <h3>일정 추가</h3>
+                <input value={newPlan.place} onChange={(e) => setNewPlan({ ...newPlan, place: e.target.value })} placeholder="장소/일정명" required />
+                <input value={newPlan.detail} onChange={(e) => setNewPlan({ ...newPlan, detail: e.target.value })} placeholder="상세" />
+                <input type="number" value={newPlan.startTime} onChange={(e) => setNewPlan({ ...newPlan, startTime: e.target.value })} placeholder="시작분(09:30=570)" />
+                <button type="submit" className="btn secondary">추가</button>
               </form>
 
-              <ul className="expense-list">
-                {expenses.map((expense) => (
-                  <li key={expense.id} className="expense-item">
-                    <span>{expense.item}</span>
-                    <span>
-                      {formatYen(expense.amt)}{' '}
-                      <button
-                        type="button"
-                        className="btn-delete"
-                        onClick={() => handleDeleteExpense(day.id, expense.id)}
-                      >
-                        x
-                      </button>
-                    </span>
-                  </li>
-                ))}
-                {expenses.length === 0 ? <li className="empty-expense">저장된 지출이 없습니다.</li> : null}
-              </ul>
+              <form className="subform" onSubmit={addExpense}>
+                <h3>지출 추가</h3>
+                <input value={newExpense.item} onChange={(e) => setNewExpense({ ...newExpense, item: e.target.value })} placeholder="항목" required />
+                <input type="number" value={newExpense.amount} onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })} placeholder="금액" required />
+                <input value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })} placeholder="분류(선택)" />
+                <button type="submit" className="btn secondary">추가</button>
+              </form>
             </div>
-          </section>
-        )
-      })}
+          ) : (
+            <p className="muted">일정/지출 추가는 특정 Day를 선택하면 활성화됩니다.</p>
+          )}
+
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>홈으로</button>
+          </div>
+        </section>
+      ) : null}
     </main>
   )
 }
