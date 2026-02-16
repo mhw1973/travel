@@ -37,8 +37,10 @@ npm run worker:deploy
 
 ## Optional Secret
 
-- `AVIATIONSTACK_ACCESS_KEY`
-  - Needed for `/api/flight-lookup`
+- `AERODATABOX_API_KEY`
+  - RapidAPI key for AeroDataBox (`/api/flight-lookup`).
+- `AERODATABOX_API_HOST` (optional)
+  - Defaults to `aerodatabox.p.rapidapi.com`.
 
 ## Flight Multi-leg Fields
 

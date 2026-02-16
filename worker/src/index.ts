@@ -5,7 +5,8 @@ interface Env {
   TURSO_AUTH_TOKEN: string
   APP_PASSWORD: string
   ALLOWED_ORIGIN: string
-  AVIATIONSTACK_ACCESS_KEY?: string
+  AERODATABOX_API_KEY?: string
+  AERODATABOX_API_HOST?: string
 }
 
 type JsonBody = Record<string, unknown>
@@ -305,31 +306,258 @@ const fetchById = async (
   return { ok: true, item: result.rows[0] }
 }
 
-interface AviationstackFlightItem {
-  flight_date?: string
-  departure?: {
-    iata?: string | null
-    airport?: string | null
-    scheduled?: string | null
+interface AeroDataBoxDateTime {
+  utc?: string | null
+  local?: string | null
+}
+
+interface AeroDataBoxAirport {
+  iata?: string | null
+  icao?: string | null
+  name?: string | null
+  shortName?: string | null
+}
+
+interface AeroDataBoxMovement {
+  airport?: AeroDataBoxAirport | null
+  scheduledTime?: AeroDataBoxDateTime | null
+  revisedTime?: AeroDataBoxDateTime | null
+  predictedTime?: AeroDataBoxDateTime | null
+  runwayTime?: AeroDataBoxDateTime | null
+}
+
+interface AeroDataBoxAirline {
+  name?: string | null
+  iata?: string | null
+  icao?: string | null
+}
+
+interface AeroDataBoxFlightItem {
+  number?: string | null
+  departure?: AeroDataBoxMovement | null
+  arrival?: AeroDataBoxMovement | null
+  airline?: AeroDataBoxAirline | null
+}
+
+const RAPIDAPI_DEFAULT_HOST = 'aerodatabox.p.rapidapi.com'
+
+const normalizeFlightIata = (value: string): string => value.trim().toUpperCase().replace(/\s+/g, '')
+
+const normalizeDateParam = (value: string): string => asDateOnly(value, 'date')
+
+const normalizeRapidApiHost = (raw: string | undefined): string => {
+  const trimmed = raw?.trim()
+  if (!trimmed) {
+    return RAPIDAPI_DEFAULT_HOST
   }
-  arrival?: {
-    iata?: string | null
-    airport?: string | null
-    scheduled?: string | null
+  return trimmed.replace(/^https?:\/\//i, '').replace(/\/+$/g, '')
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>
   }
-  airline?: {
-    name?: string | null
-    iata?: string | null
+  return null
+}
+
+const safeString = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null
   }
-  flight?: {
-    iata?: string | null
-    number?: string | null
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+  return trimmed
+}
+
+const normalizeFlightComparable = (value: string): string =>
+  normalizeFlightIata(value).replace(/[^A-Z0-9]/g, '')
+
+const stripFlightLeadingZeros = (value: string): string =>
+  value.replace(/^([A-Z]{1,3})0+(\d{1,6})$/, '$1$2')
+
+const buildFlightSearchCandidates = (value: string): string[] => {
+  const normalized = normalizeFlightComparable(value)
+  if (!normalized) {
+    return []
+  }
+  const stripped = stripFlightLeadingZeros(normalized)
+  if (stripped !== normalized) {
+    return [normalized, stripped]
+  }
+  return [normalized]
+}
+
+const parseAeroDataBoxPayload = async (response: Response): Promise<unknown | null> => {
+  try {
+    return (await response.clone().json()) as unknown
+  } catch {
+    return null
   }
 }
 
-const normalizeFlightIata = (value: string): string => value.trim().toUpperCase()
+const readProviderErrorMessage = (payload: unknown): string | null => {
+  const obj = asRecord(payload)
+  if (!obj) {
+    return null
+  }
 
-const normalizeDateParam = (value: string): string => asDateOnly(value, 'date')
+  const directMessage = safeString(obj.message)
+  if (directMessage) {
+    return directMessage
+  }
+
+  const directError = safeString(obj.error)
+  if (directError) {
+    return directError
+  }
+
+  const errorObj = asRecord(obj.error)
+  if (!errorObj) {
+    return null
+  }
+  return safeString(errorObj.message) ?? safeString(errorObj.detail)
+}
+
+const extractAeroDataBoxRows = (payload: unknown): AeroDataBoxFlightItem[] => {
+  const toRows = (items: unknown[]): AeroDataBoxFlightItem[] =>
+    items
+      .filter((item) => typeof item === 'object' && item !== null && !Array.isArray(item))
+      .map((item) => item as AeroDataBoxFlightItem)
+
+  if (Array.isArray(payload)) {
+    return toRows(payload)
+  }
+
+  const obj = asRecord(payload)
+  if (!obj) {
+    return []
+  }
+  if (Array.isArray(obj.items)) {
+    return toRows(obj.items)
+  }
+  if (Array.isArray(obj.data)) {
+    return toRows(obj.data)
+  }
+  return []
+}
+
+const requestAeroDataBoxFlights = async (
+  apiKey: string,
+  host: string,
+  flightIata: string,
+  date: string,
+): Promise<unknown> => {
+  const dateSegment = date ? `/${encodeURIComponent(date)}` : ''
+  const apiUrl = new URL(
+    `https://${host}/flights/number/${encodeURIComponent(flightIata)}${dateSegment}`,
+  )
+  apiUrl.searchParams.set('withAircraftImage', 'false')
+  apiUrl.searchParams.set('withLocation', 'false')
+
+  const response = await fetch(apiUrl.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'X-RapidAPI-Key': apiKey,
+      'X-RapidAPI-Host': host,
+    },
+  })
+
+  if (response.status === 204 || response.status === 404) {
+    return []
+  }
+
+  const payload = await parseAeroDataBoxPayload(response)
+  if (!response.ok) {
+    const providerMessage = readProviderErrorMessage(payload) ?? `status ${response.status}`
+    throw new HttpError(502, `Flight provider error: ${providerMessage}`)
+  }
+
+  return payload ?? []
+}
+
+const findMatchedFlight = (
+  rows: AeroDataBoxFlightItem[],
+  flightIata: string,
+): AeroDataBoxFlightItem => {
+  const normalized = normalizeFlightComparable(flightIata)
+  const strippedInput = stripFlightLeadingZeros(normalized)
+
+  const matched = rows.find((item) => {
+    const raw = safeString(item.number ?? null)
+    if (!raw) {
+      return false
+    }
+    const value = normalizeFlightComparable(raw)
+    if (!value) {
+      return false
+    }
+    if (value === normalized || value === strippedInput) {
+      return true
+    }
+    return stripFlightLeadingZeros(value) === strippedInput
+  })
+
+  return matched ?? rows[0]
+}
+
+const pickMovementTime = (movement: AeroDataBoxMovement | null | undefined): string | null => {
+  if (!movement) {
+    return null
+  }
+
+  const candidates = [
+    movement.runwayTime,
+    movement.revisedTime,
+    movement.predictedTime,
+    movement.scheduledTime,
+  ]
+
+  for (const candidate of candidates) {
+    const value = safeString(candidate?.utc ?? null) ?? safeString(candidate?.local ?? null)
+    if (!value) {
+      continue
+    }
+    const epoch = Date.parse(value)
+    if (!Number.isNaN(epoch)) {
+      return new Date(epoch).toISOString()
+    }
+    return value
+  }
+
+  return null
+}
+
+const pickAirportCode = (airport: AeroDataBoxAirport | null | undefined): string | null => {
+  const code = safeString(airport?.iata ?? null) ?? safeString(airport?.icao ?? null)
+  return code ? code.toUpperCase() : null
+}
+
+const pickAirportName = (airport: AeroDataBoxAirport | null | undefined): string | null =>
+  safeString(airport?.name ?? null) ?? safeString(airport?.shortName ?? null)
+
+const lookupAeroDataBoxFlights = async (
+  apiKey: string,
+  host: string,
+  flightIata: string,
+  date: string,
+): Promise<AeroDataBoxFlightItem[]> => {
+  const candidates = buildFlightSearchCandidates(flightIata)
+  let lastRows: AeroDataBoxFlightItem[] = []
+
+  for (const candidate of candidates) {
+    const payload = await requestAeroDataBoxFlights(apiKey, host, candidate, date)
+    const rows = extractAeroDataBoxRows(payload)
+    if (rows.length > 0) {
+      return rows
+    }
+    lastRows = rows
+  }
+
+  return lastRows
+}
 
 const handleFlightLookup = async (request: Request, env: Env): Promise<ResponsePayload> => {
   const url = new URL(request.url)
@@ -338,61 +566,49 @@ const handleFlightLookup = async (request: Request, env: Env): Promise<ResponseP
   const flightIata = normalizeFlightIata(rawFlightIata)
   const date = rawDate ? normalizeDateParam(rawDate) : ''
 
-  if (!flightIata || !/^[A-Z0-9]{3,8}$/.test(flightIata)) {
+  if (!flightIata || !/^[A-Z0-9]{3,10}$/.test(flightIata)) {
     throw new HttpError(400, 'flightIata query is required (e.g. KE123)')
   }
 
-  const accessKey = env.AVIATIONSTACK_ACCESS_KEY
-  if (!accessKey) {
-    throw new HttpError(501, 'AVIATIONSTACK_ACCESS_KEY is not configured')
+  const apiKey = env.AERODATABOX_API_KEY
+  if (!apiKey) {
+    throw new HttpError(501, 'AERODATABOX_API_KEY is not configured')
   }
+  const host = normalizeRapidApiHost(env.AERODATABOX_API_HOST)
 
-  const apiUrl = new URL('https://api.aviationstack.com/v1/flights')
-  apiUrl.searchParams.set('access_key', accessKey)
-  apiUrl.searchParams.set('flight_iata', flightIata)
-  if (date) {
-    apiUrl.searchParams.set('flight_date', date)
-  }
-
-  const response = await fetch(apiUrl.toString(), {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  })
-  if (!response.ok) {
-    throw new HttpError(502, `Flight provider error: ${response.status}`)
-  }
-
-  const payload = (await response.json()) as { data?: unknown }
-  const rows = Array.isArray(payload.data) ? (payload.data as AviationstackFlightItem[]) : []
+  const rows = await lookupAeroDataBoxFlights(apiKey, host, flightIata, date)
   if (rows.length === 0) {
     throw new HttpError(404, 'No matching flight found')
   }
 
-  const matched =
-    rows.find((item) => normalizeFlightIata(item.flight?.iata ?? '') === flightIata) ?? rows[0]
+  const matched = findMatchedFlight(rows, flightIata)
+  const departAt = pickMovementTime(matched.departure)
+  const arriveAt = pickMovementTime(matched.arrival)
+  const fromCode = pickAirportCode(matched.departure?.airport)
+  const toCode = pickAirportCode(matched.arrival?.airport)
+  const fromAirport = pickAirportName(matched.departure?.airport)
+  const toAirport = pickAirportName(matched.arrival?.airport)
 
-  const departAt = asOptionalString(matched.departure?.scheduled ?? null, 'departure.scheduled')
-  const arriveAt = asOptionalString(matched.arrival?.scheduled ?? null, 'arrival.scheduled')
-  const fromCode = asOptionalString(matched.departure?.iata ?? null, 'departure.iata')
-  const toCode = asOptionalString(matched.arrival?.iata ?? null, 'arrival.iata')
-  const airlineName = asOptionalString(matched.airline?.name ?? null, 'airline.name')
-  const airlineCode = asOptionalString(matched.airline?.iata ?? null, 'airline.iata')
-  const flightNumber = asOptionalString(matched.flight?.number ?? null, 'flight.number')
+  const airlineName = safeString(matched.airline?.name ?? null)
+  const airlineCode = safeString(matched.airline?.iata ?? null) ?? safeString(matched.airline?.icao ?? null)
+  const flightNumber = safeString(matched.number ?? null)
+  const normalizedFlightNo = flightNumber ? normalizeFlightIata(flightNumber) : flightIata
+  const resolvedDate = date || departAt?.slice(0, 10) || arriveAt?.slice(0, 10) || null
 
   return {
     ok: true,
     item: {
-      flightIata,
-      date: date || matched.flight_date || null,
+      flightIata: normalizedFlightNo,
+      date: resolvedDate,
       fromCode,
       toCode,
       departAt,
       arriveAt,
       airline: airlineName ?? airlineCode,
-      flightNo: flightNumber ? `${airlineCode ?? ''}${flightNumber}`.trim() : flightIata,
-      fromAirport: matched.departure?.airport ?? null,
-      toAirport: matched.arrival?.airport ?? null,
-      source: 'aviationstack',
+      flightNo: normalizedFlightNo,
+      fromAirport,
+      toAirport,
+      source: 'aerodatabox',
     },
   }
 }
