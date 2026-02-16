@@ -1,11 +1,9 @@
 name: Deploy to GitHub Pages
 
 on:
-  workflow_run:
-    workflows:
-      - pages build and deployment
-    types:
-      - completed
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -19,18 +17,10 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Checkout (after pages build)
-        if: github.event_name == 'workflow_run'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -61,6 +51,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Wait for branch Pages deployment
+        run: sleep 90
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
