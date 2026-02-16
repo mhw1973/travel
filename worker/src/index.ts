@@ -389,35 +389,57 @@ const buildFlightSearchCandidates = (value: string): string[] => {
   return [normalized]
 }
 
-const parseAeroDataBoxPayload = async (response: Response): Promise<unknown | null> => {
+interface ProviderResponseBody {
+  json: unknown | null
+  text: string | null
+}
+
+const parseProviderBody = async (response: Response): Promise<ProviderResponseBody> => {
+  let text: string | null = null
   try {
-    return (await response.clone().json()) as unknown
+    text = (await response.clone().text()).trim()
   } catch {
-    return null
+    text = null
+  }
+
+  if (!text) {
+    return { json: null, text: null }
+  }
+
+  try {
+    return { json: JSON.parse(text) as unknown, text }
+  } catch {
+    return { json: null, text }
   }
 }
 
-const readProviderErrorMessage = (payload: unknown): string | null => {
+const readProviderErrorMessage = (payload: unknown, rawText?: string | null): string | null => {
   const obj = asRecord(payload)
-  if (!obj) {
+  if (obj) {
+    const directMessage = safeString(obj.message)
+    if (directMessage) {
+      return directMessage
+    }
+
+    const directError = safeString(obj.error)
+    if (directError) {
+      return directError
+    }
+
+    const errorObj = asRecord(obj.error)
+    if (errorObj) {
+      const nested = safeString(errorObj.message) ?? safeString(errorObj.detail)
+      if (nested) {
+        return nested
+      }
+    }
+  }
+
+  const normalized = rawText?.replace(/\s+/g, ' ').trim() ?? ''
+  if (!normalized) {
     return null
   }
-
-  const directMessage = safeString(obj.message)
-  if (directMessage) {
-    return directMessage
-  }
-
-  const directError = safeString(obj.error)
-  if (directError) {
-    return directError
-  }
-
-  const errorObj = asRecord(obj.error)
-  if (!errorObj) {
-    return null
-  }
-  return safeString(errorObj.message) ?? safeString(errorObj.detail)
+  return normalized.slice(0, 180)
 }
 
 const extractAeroDataBoxRows = (payload: unknown): AeroDataBoxFlightItem[] => {
@@ -450,32 +472,47 @@ const requestAeroDataBoxFlights = async (
   date: string,
 ): Promise<unknown> => {
   const dateSegment = date ? `/${encodeURIComponent(date)}` : ''
-  const apiUrl = new URL(
-    `https://${host}/flights/number/${encodeURIComponent(flightIata)}${dateSegment}`,
-  )
-  apiUrl.searchParams.set('withAircraftImage', 'false')
-  apiUrl.searchParams.set('withLocation', 'false')
+  const pathCandidates = [
+    `/flights/number/${encodeURIComponent(flightIata)}${dateSegment}`,
+    `/flights/Number/${encodeURIComponent(flightIata)}${dateSegment}`,
+  ]
+  let lastError = 'provider request failed'
 
-  const response = await fetch(apiUrl.toString(), {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      'X-RapidAPI-Key': apiKey,
-      'X-RapidAPI-Host': host,
-    },
-  })
+  for (let index = 0; index < pathCandidates.length; index += 1) {
+    const apiUrl = new URL(`https://${host}${pathCandidates[index]}`)
+    apiUrl.searchParams.set('withAircraftImage', 'false')
+    apiUrl.searchParams.set('withLocation', 'false')
 
-  if (response.status === 204 || response.status === 404) {
-    return []
+    const response = await fetch(apiUrl.toString(), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'X-RapidAPI-Key': apiKey,
+        'X-RapidAPI-Host': host,
+      },
+    })
+
+    if (response.status === 204 || response.status === 404) {
+      return []
+    }
+
+    const body = await parseProviderBody(response)
+    if (!response.ok) {
+      const providerMessage =
+        readProviderErrorMessage(body.json, body.text) ?? `status ${response.status}`
+      lastError = providerMessage
+
+      const hasNextCandidate = index < pathCandidates.length - 1
+      if (response.status === 400 && hasNextCandidate) {
+        continue
+      }
+      throw new HttpError(502, `Flight provider error: ${providerMessage}`)
+    }
+
+    return body.json ?? []
   }
 
-  const payload = await parseAeroDataBoxPayload(response)
-  if (!response.ok) {
-    const providerMessage = readProviderErrorMessage(payload) ?? `status ${response.status}`
-    throw new HttpError(502, `Flight provider error: ${providerMessage}`)
-  }
-
-  return payload ?? []
+  throw new HttpError(502, `Flight provider error: ${lastError}`)
 }
 
 const findMatchedFlight = (
